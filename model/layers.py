@@ -1,45 +1,55 @@
 import tensorflow as tf
-from tensorflow.keras import Sequential
+from tensorflow.keras import layers
 from tensorflow.keras.layers import Conv2D, BatchNormalization, LeakyReLU
 
-def conv2d(x, filters, kernel_size, strides=1, activation=True, apply_batchnorm=True):
-    initializer = tf.random_normal_initializer(0., 0.02)
-
-    block = Sequential()
-    block.add(
-        Conv2D(
+class MyConv2D(layers.Layer):
+    def __init__(
+            self,
+            filters,
+            kernel_size,
+            strides=1,
+            activation=True,
+            apply_batchnorm=True):
+        super(MyConv2D, self).__init__()
+        self.activation = activation
+        self.apply_batchnorm = apply_batchnorm
+        self.conv2d = Conv2D(
             filters,
             kernel_size,
             strides,
             padding='same',
-            kernel_initializer=initializer,
-            use_bias=False
+            kernel_initializer=tf.random_normal_initializer(0., 0.02)
         )
-    )
+        self.batch_norm = BatchNormalization()
+        self.leaky_relu = LeakyReLU()
 
-    if apply_batchnorm:
-        block.add(BatchNormalization())
+    def call(self, inputs, **kwargs):
+        x = self.conv2d(inputs)
+        if self.apply_batchnorm:
+            x = self.batch_norm(x)
 
-    if activation:
-        block.add(LeakyReLU())
+        if self.activation:
+            x = self.leaky_relu(x)
 
-    output = block(x)
+        return x
 
-    return output
 
-def residual_block(x, filters, kernel_size):
-    if isinstance(filters, int):
-        filters = [filters, filters]
+class ResidualBlock(layers.Layer):
+    def __init__(self, filters, kernel_size):
+        super(ResidualBlock, self).__init__()
+        self.filters = [filters, filters] if isinstance(filters, int) else filters
+        self.kernel_size = [kernel_size, kernel_size] if isinstance(kernel_size, int) else kernel_size
+        self.conv1 = MyConv2D(filters=self.filters[0], kernel_size=self.kernel_size[0])
+        self.conv2 = MyConv2D(filters=self.filters[1], kernel_size=self.kernel_size[1], activation=False)
+        self.leaky_relu = LeakyReLU()
 
-    if isinstance(kernel_size, int):
-        kernel_size = [kernel_size, kernel_size]
+    def call(self, inputs, **kwargs):
+        shortcut = inputs
 
-    shortcut = x
+        x = self.conv1(inputs)
+        x = self.conv2(x)
+        # residual shortcut
+        x += shortcut
+        x = self.leaky_relu(x)
 
-    x = conv2d(x, filters[0], kernel_size[0])
-    x = conv2d(x, filters[1], kernel_size[1], activation=False)
-    # residual shortcut
-    x += shortcut
-    x = LeakyReLU()(x)
-
-    return x
+        return x
