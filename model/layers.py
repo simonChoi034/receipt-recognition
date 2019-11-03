@@ -1,6 +1,6 @@
 import tensorflow as tf
 from tensorflow.keras import layers
-from tensorflow.keras.layers import Conv2D, BatchNormalization, LeakyReLU
+from tensorflow.keras.layers import Conv2D, BatchNormalization, LeakyReLU, Concatenate, UpSampling2D
 
 class MyConv2D(layers.Layer):
     def __init__(
@@ -41,10 +41,11 @@ class ResidualBlock(layers.Layer):
         self.kernel_size = [kernel_size, kernel_size] if isinstance(kernel_size, int) else kernel_size
         self.conv1 = MyConv2D(filters=self.filters[0], kernel_size=self.kernel_size[0])
         self.conv2 = MyConv2D(filters=self.filters[1], kernel_size=self.kernel_size[1], activation=False)
+        self.shortcut = MyConv2D(filters=self.filters[1], kernel_size=1)
         self.leaky_relu = LeakyReLU()
 
     def call(self, inputs, **kwargs):
-        shortcut = inputs
+        shortcut = self.shortcut(inputs)
 
         x = self.conv1(inputs)
         x = self.conv2(x)
