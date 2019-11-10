@@ -1,6 +1,6 @@
 import tensorflow as tf
 from tensorflow.keras import layers
-from tensorflow.keras.layers import Conv2D, BatchNormalization, LeakyReLU, Concatenate, UpSampling2D
+from tensorflow.keras.layers import Conv2D, BatchNormalization, LeakyReLU, Concatenate, UpSampling2D, Lambda
 
 class MyConv2D(layers.Layer):
     def __init__(
