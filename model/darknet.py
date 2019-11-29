@@ -1,5 +1,7 @@
 from tensorflow.keras import layers
+
 from .layers import MyConv2D, ResidualBlock
+
 
 class Darknet53(layers.Layer):
     def __init__(self, name='darknet-53', **kwargs):

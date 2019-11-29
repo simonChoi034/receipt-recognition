@@ -1,11 +1,12 @@
+import numpy as np
 import tensorflow as tf
-from .layers import MyConv2D, ResidualBlock, Concatenate, UpSampling2D, Lambda
-from .darknet import Darknet53
 from tensorflow.keras.losses import (
     binary_crossentropy,
     sparse_categorical_crossentropy
 )
-import numpy as np
+
+from .darknet import Darknet53
+from .layers import MyConv2D, ResidualBlock, Concatenate, UpSampling2D
 
 
 def broadcast_iou(box_1, box_2):
@@ -33,14 +34,14 @@ def broadcast_iou(box_1, box_2):
 
 
 class YoloV3(tf.keras.Model):
-    def __init__(self, num_class, is_training=False, name='yolov3', **kwargs):
+    yolo_anchors = np.array([(10, 13), (16, 30), (33, 23), (30, 61), (62, 45),
+                             (59, 119), (116, 90), (156, 198), (373, 326)],
+                            np.float32) / 416
+    yolo_anchor_masks = np.array([[6, 7, 8], [3, 4, 5], [0, 1, 2]])
+
+    def __init__(self, num_class, name='yolov3', **kwargs):
         super(YoloV3, self).__init__(name=name, **kwargs)
-        self.yolo_anchors = np.array([(10, 13), (16, 30), (33, 23), (30, 61), (62, 45),
-                                      (59, 119), (116, 90), (156, 198), (373, 326)],
-                                     np.float32) / 416
-        self.yolo_anchor_masks = np.array([[6, 7, 8], [3, 4, 5], [0, 1, 2]])
         self.num_class = num_class
-        self.is_training = is_training
         self.darknet = Darknet53()
         self.upsampling2d = UpSampling2D()
         self.concat = Concatenate()
@@ -57,25 +58,29 @@ class YoloV3(tf.keras.Model):
 
     ### reference code from https://github.com/zzh8829/yolov3-tf2/blob/master/yolov3_tf2/models.py
     def yolo_boxes(self, pred, anchors):
+        # pred: (batch_size, grid, grid, anchors, (x, y, w, h, obj, ...classes))
         grid_size = tf.shape(pred)[1]
-        box_xy, box_wh, prob_object, prob_class = tf.split(pred, (2, 2, 1, self.num_class), axis=-1)
+        box_xy, box_wh, objectness, class_probs = tf.split(
+            pred, (2, 2, 1, self.num_class), axis=-1)
 
         box_xy = tf.sigmoid(box_xy)
-        prob_object = tf.sigmoid(prob_object)
-        prob_class = tf.sigmoid(prob_class)
-        pred_box = tf.concat([box_xy, box_wh], axis=-1)
+        objectness = tf.sigmoid(objectness)
+        class_probs = tf.sigmoid(class_probs)
+        pred_box = tf.concat((box_xy, box_wh), axis=-1)  # original xywh for loss
 
+        # !!! grid[x][y] == (y, x)
         grid = tf.meshgrid(tf.range(grid_size), tf.range(grid_size))
-        grid = tf.expand_dims(tf.stack(grid, axis=-1), axis=2)
+        grid = tf.expand_dims(tf.stack(grid, axis=-1), axis=2)  # [gx, gy, 1, 2]
 
-        box_xy = (box_xy + grid) / grid_size
+        box_xy = (box_xy + tf.cast(grid, tf.float32)) / \
+                 tf.cast(grid_size, tf.float32)
         box_wh = tf.exp(box_wh) * anchors
 
-        box_xy_1 = box_xy - box_wh / 2
-        box_xy_2 = box_xy + box_wh / 2
-        bounding_box = tf.concat([box_xy_1, box_xy_2], axis=-1)
+        box_x1y1 = box_xy - box_wh / 2
+        box_x2y2 = box_xy + box_wh / 2
+        bbox = tf.concat([box_x1y1, box_x2y2], axis=-1)
 
-        return bounding_box, prob_object, prob_class, pred_box
+        return bbox, objectness, class_probs, pred_box
 
     def output_bbox(self, input):
         b, c, t = [], [], []
@@ -163,7 +168,7 @@ class YoloV3(tf.keras.Model):
 
     ### reference code from https://github.com/zzh8829/yolov3-tf2/blob/master/yolov3_tf2/models.py
 
-    def call(self, inputs, **kwargs):
+    def call(self, inputs, training=False, **kwargs):
         anchors = self.yolo_anchors
         masks = self.yolo_anchor_masks
 
@@ -192,8 +197,8 @@ class YoloV3(tf.keras.Model):
         # scale 3 output
         scale_3_detector = self.yolo_output(scale_3_detector, len(masks[2]))
 
-        if self.is_training:
-            return scale_3_detector, scale_2_detector, scale_1_detector
+        if training:
+            return scale_1_detector, scale_2_detector, scale_3_detector
 
         # bounding box prediction
         boxes_1 = self.yolo_boxes(scale_1_detector, anchors[masks[0]])

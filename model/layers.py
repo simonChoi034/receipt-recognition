@@ -1,7 +1,8 @@
 import tensorflow as tf
 from tensorflow.keras import layers
-from tensorflow.keras.layers import Conv2D, BatchNormalization, LeakyReLU, Concatenate, UpSampling2D, Lambda
+from tensorflow.keras.layers import Conv2D, BatchNormalization, LeakyReLU, Concatenate, UpSampling2D
 from tensorflow.keras.regularizers import l2
+
 
 class MyConv2D(layers.Layer):
     def __init__(
@@ -19,7 +20,7 @@ class MyConv2D(layers.Layer):
             kernel_size,
             strides,
             padding='same',
-            kernel_initializer=tf.random_normal_initializer(0., 0.02),
+            kernel_initializer=tf.random_normal_initializer(0., 0.05),
             kernel_regularizer=l2(0.0005)
         )
         self.batch_norm = BatchNormalization()

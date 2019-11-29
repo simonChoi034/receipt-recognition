@@ -4,6 +4,7 @@ from __future__ import print_function
 
 __author__ = 'andreasveit'
 __version__ = '2.0'
+
 # Interface for accessing the COCO-Text dataset.
 
 # COCO-Text is a large dataset designed for text detection and recognition.
@@ -36,15 +37,16 @@ __version__ = '2.0'
 # extended and adapted by Andreas Veit, 2016.
 # Licensed under the Simplified BSD License [see bsd.txt]
 
-import json
 import datetime
+import json
+import os
+
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.collections import PatchCollection
 from matplotlib.patches import Rectangle, PathPatch
 from matplotlib.path import Path
-import numpy as np
-import copy
-import os
+
 
 class COCO_Text:
     def __init__(self, annotation_file=None):
@@ -76,12 +78,12 @@ class COCO_Text:
         # create index
         print('creating index...')
         self.imgToAnns = {int(cocoid): self.dataset['imgToAnns'][cocoid] for cocoid in self.dataset['imgToAnns']}
-        self.imgs      = {int(cocoid): self.dataset['imgs'][cocoid] for cocoid in self.dataset['imgs']}
-        self.anns      = {int(annid): self.dataset['anns'][annid] for annid in self.dataset['anns']}
-        self.cats      = self.dataset['cats']
-        self.val       = [int(cocoid) for cocoid in self.dataset['imgs'] if self.dataset['imgs'][cocoid]['set'] == 'val']
-        self.test      = [int(cocoid) for cocoid in self.dataset['imgs'] if self.dataset['imgs'][cocoid]['set'] == 'test']
-        self.train     = [int(cocoid) for cocoid in self.dataset['imgs'] if self.dataset['imgs'][cocoid]['set'] == 'train']
+        self.imgs = {int(cocoid): self.dataset['imgs'][cocoid] for cocoid in self.dataset['imgs']}
+        self.anns = {int(annid): self.dataset['anns'][annid] for annid in self.dataset['anns']}
+        self.cats = self.dataset['cats']
+        self.val = [int(cocoid) for cocoid in self.dataset['imgs'] if self.dataset['imgs'][cocoid]['set'] == 'val']
+        self.test = [int(cocoid) for cocoid in self.dataset['imgs'] if self.dataset['imgs'][cocoid]['set'] == 'test']
+        self.train = [int(cocoid) for cocoid in self.dataset['imgs'] if self.dataset['imgs'][cocoid]['set'] == 'train']
         print('index created!')
 
     def info(self):
@@ -90,7 +92,7 @@ class COCO_Text:
         :return:
         """
         for key, value in self.dataset['info'].items():
-            print('%s: %s'%(key, value))
+            print('%s: %s' % (key, value))
 
     def filtering(self, filterDict, criteria):
         return [key for key in filterDict if all(criterion(filterDict[key]) for criterion in criteria)]
@@ -102,7 +104,7 @@ class COCO_Text:
             : get anns for given categories - anns have to satisfy all given property tuples
         :return: ids (int array)       : integer array of ann ids
         """
-        return self.filtering(self.anns, [lambda d, x=a, y=b:d[x] == y for (a,b) in properties])
+        return self.filtering(self.anns, [lambda d, x=a, y=b: d[x] == y for (a, b) in properties])
 
     def getAnnIds(self, imgIds=[], catIds=[], areaRng=[]):
         """
@@ -120,11 +122,13 @@ class COCO_Text:
             anns = list(self.anns.keys())
         else:
             if not len(imgIds) == 0:
-                anns = sum([self.imgToAnns[imgId] for imgId in imgIds if imgId in self.imgToAnns],[])
+                anns = sum([self.imgToAnns[imgId] for imgId in imgIds if imgId in self.imgToAnns], [])
             else:
                 anns = list(self.anns.keys())
-            anns = anns if len(catIds)  == 0 else list(set(anns).intersection(set(self.getAnnByCat(catIds)))) 
-            anns = anns if len(areaRng) == 0 else [ann for ann in anns if self.anns[ann]['area'] > areaRng[0] and self.anns[ann]['area'] < areaRng[1]]
+            anns = anns if len(catIds) == 0 else list(set(anns).intersection(set(self.getAnnByCat(catIds))))
+            anns = anns if len(areaRng) == 0 else [ann for ann in anns if
+                                                   self.anns[ann]['area'] > areaRng[0] and self.anns[ann]['area'] <
+                                                   areaRng[1]]
         return anns
 
     def getImgIds(self, imgIds=[], catIds=[]):
@@ -142,7 +146,7 @@ class COCO_Text:
         else:
             ids = set(imgIds)
             if not len(catIds) == 0:
-                ids  = ids.intersection(set([self.anns[annid]['image_id'] for annid in self.getAnnByCat(catIds)]))
+                ids = ids.intersection(set([self.anns[annid]['image_id'] for annid in self.getAnnByCat(catIds)]))
         return list(ids)
 
     def loadAnns(self, ids=[]):
@@ -189,12 +193,12 @@ class COCO_Text:
                 text_x, text_y = verts[0]
             else:
                 left, top, width, height = ann['bbox']
-                boxes.append(Rectangle([left,top],width,height,alpha=0.4))
+                boxes.append(Rectangle([left, top], width, height, alpha=0.4))
                 text_x, text_y = left, top
             color.append(c)
             if 'utf8_string' in list(ann.keys()):
-                ax.annotate(ann['utf8_string'],(text_x, text_y-4),color=c)
-        p = PatchCollection(boxes, facecolors=color, edgecolors=(0,0,0,1), linewidths=3, alpha=0.4)
+                ax.annotate(ann['utf8_string'], (text_x, text_y - 4), color=c)
+        p = PatchCollection(boxes, facecolors=color, edgecolors=(0, 0, 0, 1), linewidths=3, alpha=0.4)
         ax.add_collection(p)
 
     def loadRes(self, resFile):
@@ -214,24 +218,24 @@ class COCO_Text:
             anns = resFile
         assert type(anns) == list, 'results in not an array of objects'
         annsImgIds = [int(ann['image_id']) for ann in anns]
-        
+
         if set(annsImgIds) != (set(annsImgIds) & set(self.getImgIds())):
             print('Results do not correspond to current coco set')
             print('skipping ', str(len(set(annsImgIds)) - len(set(annsImgIds) & set(self.getImgIds()))), ' images')
         annsImgIds = list(set(annsImgIds) & set(self.getImgIds()))
 
-        res.imgToAnns = {cocoid : [] for cocoid in annsImgIds}
-        res.imgs = {cocoid: self.imgs[cocoid] for cocoid in annsImgIds} 
+        res.imgToAnns = {cocoid: [] for cocoid in annsImgIds}
+        res.imgs = {cocoid: self.imgs[cocoid] for cocoid in annsImgIds}
 
         assert anns[0]['bbox'] != [], 'results have incorrect format'
         for id, ann in enumerate(anns):
             if ann['image_id'] not in annsImgIds:
                 continue
             bb = ann['bbox']
-            ann['area'] = bb[2]*bb[3]
+            ann['area'] = bb[2] * bb[3]
             ann['id'] = id
             res.anns[id] = ann
             res.imgToAnns[ann['image_id']].append(id)
-        print('DONE (t=%0.2fs)'%((datetime.datetime.utcnow() - time_t).total_seconds()))
+        print('DONE (t=%0.2fs)' % ((datetime.datetime.utcnow() - time_t).total_seconds()))
 
         return res
