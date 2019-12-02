@@ -6,7 +6,7 @@ import tensorflow as tf
 import numpy as np
 
 from coco_text.dataset import Dataset, COCOGenerator
-from model.yolov3 import YoloV3
+from model.yolov3 import YoloV3, yolo_loss
 
 dataset_choice = ['coco_text']
 IMAGE_SIZE = 416
@@ -37,7 +37,7 @@ def train_one_step(model, optimizer, loss_fn, x, y):
 def train(model, dataset, optimizer):
     anchors = YoloV3.yolo_anchors
     anchor_masks = YoloV3.yolo_anchor_masks
-    loss_fn = [model.yolo_loss(anchors[mask]) for mask in anchor_masks]
+    loss_fn = [yolo_loss(anchors[mask], num_class=NUM_CLASS) for mask in anchor_masks]
 
     for epoch, data in enumerate(dataset):
         tf.print("Epochs", epoch)
