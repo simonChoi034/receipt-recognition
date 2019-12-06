@@ -6,7 +6,7 @@ import tensorflow as tf
 import numpy as np
 
 from coco_text.dataset import Dataset, COCOGenerator
-from model.yolov3 import YoloV3, yolo_loss
+from model.yolov3 import YoloV3
 
 dataset_choice = ['coco_text']
 IMAGE_SIZE = 416
@@ -17,13 +17,13 @@ LEARNING_RATE = 1e-3
 NUM_CLASS = 2
 
 
-def train_one_step(model, optimizer, loss_fn, x, y):
+def train_one_step(model, optimizer, x, y):
     with tf.GradientTape() as tape:
-        pred = model(x, training=True)
+        pred_s, pred_m, pred_l = model(x, training=True)
+        true_s, true_m, true_l = y
         regularization_loss = tf.reduce_sum(model.losses)
-        pred_loss = []
-        for pred, y, loss_fn in zip(pred, y, loss_fn):
-            pred_loss.append(loss_fn(y, pred))
+
+        pred_loss = model.yolo_loss(pred_s, pred_m, pred_l, true_s, true_m, true_l)
 
         total_loss = tf.reduce_sum(pred_loss) + regularization_loss
 
@@ -35,13 +35,9 @@ def train_one_step(model, optimizer, loss_fn, x, y):
 
 
 def train(model, dataset, optimizer):
-    anchors = YoloV3.yolo_anchors
-    anchor_masks = YoloV3.yolo_anchor_masks
-    loss_fn = [yolo_loss(anchors[mask], num_class=NUM_CLASS) for mask in anchor_masks]
-
     for epoch, data in enumerate(dataset):
         tf.print("Epochs", epoch)
-        loss = train_one_step(model, optimizer, loss_fn, data['image'], data['label'])
+        loss = train_one_step(model, optimizer, data['image'], data['label'])
         tf.print("Loss: ", loss)
 
         if np.array(epoch) % 100 == 0:

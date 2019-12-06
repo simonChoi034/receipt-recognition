@@ -25,7 +25,7 @@ class COCOGenerator:
 
     def transform_targets_for_output(self, y_true, grid_size, anchor_idxs):
         # y_true: (boxes, (x1, y1, x2, y2, class, best_anchor))
-        # y_true_out: (grid, grid, anchors, [x, y, w, h, obj, class])
+        # y_true_out: (grid, grid, anchors, [x1, y1, x2, y2, obj, class])
         y_true_out = np.zeros((grid_size, grid_size, anchor_idxs.shape[0], 6))
 
         for i in range(y_true.shape[0]):
