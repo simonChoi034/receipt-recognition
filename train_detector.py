@@ -8,9 +8,14 @@ import numpy as np
 from coco_text.dataset import Dataset, COCOGenerator
 from model.yolov3 import YoloV3
 
+try:
+    tf.enable_eager_execution()
+except:
+    pass
+
 dataset_choice = ['coco_text']
 IMAGE_SIZE = 416
-BATCH_SIZE = 32
+BATCH_SIZE = 16
 BUFFER_SIZE = 320
 PREFETCH_SIZE = 5
 LEARNING_RATE = 1e-3

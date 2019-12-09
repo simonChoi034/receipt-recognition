@@ -177,6 +177,7 @@ class Dataset:
         )
         dataset = dataset.shuffle(buffer_size=self.buffer_size)
         dataset = dataset.map(map_func=self.read_and_resize_image)
+        dataset = dataset.filter(lambda x: x['image'].shape[2] == 3)
         dataset = dataset.batch(batch_size=self.batch_size)
         dataset = dataset.prefetch(buffer_size=self.prefetch_size)
 
