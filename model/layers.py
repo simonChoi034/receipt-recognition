@@ -26,10 +26,10 @@ class MyConv2D(layers.Layer):
         self.batch_norm = BatchNormalization()
         self.leaky_relu = LeakyReLU()
 
-    def call(self, inputs, **kwargs):
+    def call(self, inputs, training=False, **kwargs):
         x = self.conv2d(inputs)
         if self.apply_batchnorm:
-            x = self.batch_norm(x)
+            x = self.batch_norm(x, training=training)
 
         if self.activation:
             x = self.leaky_relu(x)
@@ -47,11 +47,11 @@ class ResidualBlock(layers.Layer):
         self.shortcut = MyConv2D(filters=self.filters[1], kernel_size=1)
         self.leaky_relu = LeakyReLU()
 
-    def call(self, inputs, **kwargs):
+    def call(self, inputs, training=False, **kwargs):
         shortcut = self.shortcut(inputs)
 
-        x = self.conv1(inputs)
-        x = self.conv2(x)
+        x = self.conv1(inputs, training=training)
+        x = self.conv2(x, training=training)
         # residual shortcut
         x += shortcut
         x = self.leaky_relu(x)

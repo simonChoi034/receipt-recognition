@@ -6,93 +6,145 @@ import tensorflow as tf
 import numpy as np
 
 from coco_text.dataset import Dataset, COCOGenerator
-from model.yolov3 import YoloV3
+from model.yolov3 import YoloV3, yolo_loss, yolo_anchors, yolo_anchor_masks, output_bbox
+from parameters import dataset_choice, IMAGE_SIZE, BATCH_SIZE, BUFFER_SIZE, PREFETCH_SIZE, NUM_CLASS, LEARNING_RATE
 
 try:
     tf.enable_eager_execution()
 except:
     pass
 
-dataset_choice = ['coco_text']
-IMAGE_SIZE = 416
-BATCH_SIZE = 16
-BUFFER_SIZE = 320
-PREFETCH_SIZE = 5
-LEARNING_RATE = 1e-3
-NUM_CLASS = 2
+physical_devices = tf.config.experimental.list_physical_devices('GPU')
+print("Num GPUs Available: ", len(physical_devices))
+if len(physical_devices) > 0:
+    tf.config.experimental.set_memory_growth(physical_devices[0], True)
+
+model = YoloV3(num_class=NUM_CLASS)
+optimizer = tf.keras.optimizers.Adam(lr=LEARNING_RATE)
 
 
-def train_one_step(model, optimizer, x, y):
+def validation(x, y):
+    # calculate loss from validation dataset
+    pred_s, pred_m, pred_l = model(x)
+    true_s, true_m, true_l = y
+    regularization_loss = tf.reduce_sum(model.losses)
+    pred_loss = yolo_loss(pred_s, pred_m, pred_l, true_s, true_m, true_l)
+    total_loss = tf.reduce_sum(pred_loss) + regularization_loss
+
+    # get bounding box
+    bbox, objectness, class_probs, pred_box = output_bbox((pred_s, pred_m, pred_l))
+
+    return total_loss, bbox, objectness, class_probs, pred_box
+
+
+def train_one_step(x, y):
     with tf.GradientTape() as tape:
         pred_s, pred_m, pred_l = model(x, training=True)
         true_s, true_m, true_l = y
         regularization_loss = tf.reduce_sum(model.losses)
 
-        pred_loss = model.yolo_loss(pred_s, pred_m, pred_l, true_s, true_m, true_l)
+        pred_loss = yolo_loss(pred_s, pred_m, pred_l, true_s, true_m, true_l)
 
         total_loss = tf.reduce_sum(pred_loss) + regularization_loss
 
-        grads = tape.gradient(total_loss, model.trainable_variables)
-        optimizer.apply_gradients(
-            zip(grads, model.trainable_variables))
+    grads = tape.gradient(total_loss, model.trainable_variables)
+    optimizer.apply_gradients(
+        zip(grads, model.trainable_variables))
 
-        return total_loss
+    return total_loss
 
 
-def train(model, dataset, optimizer):
-    for epoch, data in enumerate(dataset):
-        tf.print("Epochs", epoch)
-        loss = train_one_step(model, optimizer, data['image'], data['label'])
-        tf.print("Loss: ", loss)
+def train(dataset_train, dataset_val):
+    train_loss = []
+    val_loss = []
 
-        if np.array(epoch) % 100 == 0:
+    iterator_val = dataset_val.make_one_shot_iterator()
+
+    for epoch, data in enumerate(dataset_train):
+        loss = train_one_step(data['image'], data['label'])
+        train_loss.append(loss)
+
+        if np.array(epoch) % 200 == 0:
+            tf.print("Epochs", epoch)
+            # validation ever 100 epochs
+            data_val = iterator_val.get_next()
+            loss, bbox, objectness, class_probs, pred_box = validation(data_val['image'], data_val['label'])
+            val_loss.append(loss)
+
+            tf.print("Validation loss: ", loss)
+
+            plot_bounding_box(data_val['image'].numpy()[0], bbox.numpy()[0])
+
             model.save_weights(
                 './checkpoints/yolov3_train_{}.tf'.format(epoch))
 
 
 def main(args):
-    physical_devices = tf.config.experimental.list_physical_devices('GPU')
-    print("Num GPUs Available: ", len(physical_devices))
-    if len(physical_devices) > 0:
-        tf.config.experimental.set_memory_growth(physical_devices[0], True)
-
-    model = YoloV3(num_class=NUM_CLASS)
-    optimizer = tf.keras.optimizers.Adam(lr=LEARNING_RATE)
-
     if args.dataset == 'coco_text':
         # set up dataset config
         imgs_dir = args.dir[0:-1] if args.dir[-1] == '/' else args.dir
-        coco_generator = COCOGenerator('./coco_text/cocotext.v2.json',
-                                       imgs_dir,
-                                       image_input_size=[IMAGE_SIZE, IMAGE_SIZE],
-                                       anchors=YoloV3.yolo_anchors,
-                                       anchor_masks=YoloV3.yolo_anchor_masks
-                                       )
-        coco_generator.set_dataset_info()
+        coco_train_generator = COCOGenerator('./coco_text/cocotext.v2.json',
+                                             imgs_dir,
+                                             mode='train',
+                                             batch_size=BATCH_SIZE,
+                                             image_input_size=[IMAGE_SIZE, IMAGE_SIZE],
+                                             anchors=yolo_anchors,
+                                             anchor_masks=yolo_anchor_masks
+                                             )
+        coco_val_generator = COCOGenerator('./coco_text/cocotext.v2.json',
+                                           imgs_dir,
+                                           mode='val',
+                                           batch_size=BATCH_SIZE,
+                                           image_input_size=[IMAGE_SIZE, IMAGE_SIZE],
+                                           anchors=yolo_anchors,
+                                           anchor_masks=yolo_anchor_masks
+                                           )
+        coco_train_generator.set_dataset_info()
+        coco_val_generator.set_dataset_info()
 
-        dataset_generator = Dataset(
-            generator=coco_generator,
+        dataset_train_generator = Dataset(
+            generator=coco_train_generator,
             image_input_size=[IMAGE_SIZE, IMAGE_SIZE],
             batch_size=BATCH_SIZE,
             buffer_size=BUFFER_SIZE,
             prefetch_size=PREFETCH_SIZE
         )
-        dataset = dataset_generator.create_dataset()
+        dataset_val_generator = Dataset(
+            generator=coco_val_generator,
+            image_input_size=[IMAGE_SIZE, IMAGE_SIZE],
+            batch_size=BATCH_SIZE,
+            buffer_size=BUFFER_SIZE,
+            prefetch_size=PREFETCH_SIZE
+        )
+        dataset_train = dataset_train_generator.create_dataset()
+        dataset_val = dataset_val_generator.create_dataset()
 
         # train network
-        train(model, dataset, optimizer)
+        train(dataset_train, dataset_val)
 
 
 def plot_bounding_box(img, label):
+    # set random color
+    colors = np.random.rand(500)
+    cmap = plt.cm.RdYlBu_r
+    c = cmap((np.array(colors) - np.amin(colors)) / (np.amax(colors) - np.amin(colors)))
+
+    # normalize image to [0, 1]
+    img = (img + 1) / 2
+
+    # plot graph
     fig, ax = plt.subplots(1)
     ax.imshow(img)
-    for bbox in label:
-        x, y, w, h, _ = bbox
-        rect = mpatches.Rectangle((x * IMAGE_SIZE, y * IMAGE_SIZE), w * IMAGE_SIZE, h * IMAGE_SIZE, linewidth=2,
-                                  edgecolor='r', facecolor='none')
+    for i, bbox in enumerate(label):
+        x1, y1, x2, y2 = bbox
+        w = abs(x2 - x1) * IMAGE_SIZE
+        h = abs(y2 - y1) * IMAGE_SIZE
+        x, y = x1 * IMAGE_SIZE, y1 * IMAGE_SIZE
+
+        rect = mpatches.Rectangle((x, y), w, h, linewidth=2,
+                                  edgecolor=c[i], facecolor='none')
         ax.add_patch(rect)
     plt.show()
-    plt.close()
 
 
 if __name__ == '__main__':

@@ -1,0 +1,9 @@
+dataset_choice = ['coco_text']
+IMAGE_SIZE = 416
+BATCH_SIZE = 1
+BUFFER_SIZE = 320
+PREFETCH_SIZE = 5
+LEARNING_RATE = 0.05
+NUM_CLASS = 2
+yolo_iou_threshold = 0.5
+yolo_score_threshold = 0.5
