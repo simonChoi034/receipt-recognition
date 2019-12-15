@@ -40,20 +40,18 @@ class COCOGenerator:
             img_meta['file_name'] = '%s/%s' % (self.dataset_dir, img_meta['file_name'])
 
     def transform_targets_for_output(self, y_true, grid_size, anchor_idxs):
-        # y_true: (boxes, (x1, y1, x2, y2, class, best_anchor))
-        # y_true_out: (grid, grid, anchors, [x1, y1, x2, y2, obj, class])
+        # y_true: (boxes, (x, y, w, h, class, best_anchor))
+        # y_true_out: (grid, grid, anchors, [x, y, w, h, obj, class])
         y_true_out = np.zeros((grid_size, grid_size, anchor_idxs.shape[0], 6))
 
         for i in range(y_true.shape[0]):
-            if y_true[i][2] == 0:
-                continue
             anchor_eq = np.equal(
                 anchor_idxs, y_true[i][5]
             )
 
             if np.any(anchor_eq):
                 box = y_true[i][0:4]
-                box_xy = (y_true[i][0:2] + y_true[i][2:4]) / 2
+                box_xy = y_true[i][0:2]
 
                 anchor_idx = np.where(anchor_eq)
                 grid_xy = box_xy // (1 / grid_size)
@@ -70,7 +68,7 @@ class COCOGenerator:
         grid_size = math.ceil(self.image_input_size[0] / 32)
 
         anchor_area = self.anchors[..., 0] * self.anchors[..., 1]
-        box_wh = y_true[..., 2:4] - y_true[..., 0:2]
+        box_wh = y_true[..., 2:4]
         box_wh = np.tile(np.expand_dims(box_wh, -2), (1, 1, self.anchors.shape[0], 1))
         box_area = box_wh[..., 0] * box_wh[..., 1]
         intersection = np.minimum(box_wh[..., 0], self.anchors[..., 0]) * np.minimum(box_wh[..., 1],
@@ -95,8 +93,8 @@ class COCOGenerator:
         # apply transformation to each label
         label = self.resize_label(np.array(label), [img_h, img_w], self.image_input_size)
         # add class id to each bbox
-        mapfun = lambda x: np.append(x, 1)
-        label = np.apply_along_axis(mapfun, 1, label)
+        class_ids = np.ones((label.shape[0], 1))
+        label = np.concatenate([label, class_ids], axis=-1)
 
         label = self.transform_label(label)
 
@@ -108,16 +106,16 @@ class COCOGenerator:
 
         self.labels = labels
 
-    def transforming_wh(self, label):
+    def transforming_center(self, label):
         for element in label:
-            element[2] += element[0]
-            element[3] += element[1]
+            element[0] += element[2] / 2
+            element[1] += element[3] / 2
         return label
 
     def resize_label(self, label, original_dim, resize_dim):
         # change top-left xy to center xy
-        # [x, y, w, h] -> [x.min, y.min, x.max, y.max]
-        label = self.transforming_wh(label)
+        # [x, y, w, h] -> [center_x, center_y, w, h]
+        label = self.transforming_center(label)
 
         # normalize label
         img_h, img_w = original_dim

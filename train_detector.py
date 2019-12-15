@@ -14,13 +14,18 @@ try:
 except:
     pass
 
+checkpoint_dir = './checkpoints/yolov3_train.tf'
+
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
 print("Num GPUs Available: ", len(physical_devices))
 if len(physical_devices) > 0:
     tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
+
 model = YoloV3(num_class=NUM_CLASS)
 optimizer = tf.keras.optimizers.Adam(lr=LEARNING_RATE)
+ckpt = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optimizer, net=model)
+manager = tf.train.CheckpointManager(ckpt, checkpoint_dir, max_to_keep=5)
 
 
 def validation(x, y):
@@ -55,28 +60,39 @@ def train_one_step(x, y):
 
 
 def train(dataset_train, dataset_val):
+    # restore checkpoint
+    ckpt.restore(manager.latest_checkpoint)
+    if manager.latest_checkpoint:
+        print("Restored from {}".format(manager.latest_checkpoint))
+    else:
+        print("Initializing from scratch.")
+
     train_loss = []
     val_loss = []
 
     iterator_val = dataset_val.make_one_shot_iterator()
 
-    for epoch, data in enumerate(dataset_train):
+    for data in dataset_train:
         loss = train_one_step(data['image'], data['label'])
         train_loss.append(loss)
 
-        if np.array(epoch) % 200 == 0:
-            tf.print("Epochs", epoch)
+        ckpt.step.assign_add(1)
+
+        if int(ckpt.step) % 100 == 0:
+            tf.print("Steps: ", int(ckpt.step))
             # validation ever 100 epochs
             data_val = iterator_val.get_next()
             loss, bbox, objectness, class_probs, pred_box = validation(data_val['image'], data_val['label'])
             val_loss.append(loss)
 
-            tf.print("Validation loss: ", loss)
+            tf.print("Train loss: ", train_loss[-1])
+            tf.print("Validation loss: ", val_loss[-1])
 
             plot_bounding_box(data_val['image'].numpy()[0], bbox.numpy()[0])
 
-            model.save_weights(
-                './checkpoints/yolov3_train_{}.tf'.format(epoch))
+            save_path = manager.save()
+            print("Saved checkpoint for step {}: {}".format(int(ckpt.step), save_path))
+            print("loss {:1.2f}".format(loss.numpy()))
 
 
 def main(args):

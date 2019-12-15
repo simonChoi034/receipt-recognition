@@ -58,11 +58,11 @@ def loss_layer(y_pred, y_true, anchors):
     pred_wh = pred_xywh[..., 2:4]
 
     # 2. transform all true outputs
-    # y_true: (batch_size, grid, grid, anchors, (x1, y1, x2, y2, obj, cls))
+    # y_true: (batch_size, grid, grid, anchors, (x, y, w, h, obj, cls))
     true_box, true_obj, true_class_idx = tf.split(
         y_true, (4, 1, 1), axis=-1)
-    true_xy = (true_box[..., 0:2] + true_box[..., 2:4]) / 2
-    true_wh = true_box[..., 2:4] - true_box[..., 0:2]
+    true_xy = true_box[..., 0:2]
+    true_wh = true_box[..., 2:4]
 
     # give higher weights to small boxes
     box_loss_scale = 2 - true_wh[..., 0] * true_wh[..., 1]
