@@ -16,7 +16,7 @@ class Darknet53(layers.Layer):
         self.res_2 = [ResidualBlock(filters=[64, 128], kernel_size=[1, 3]) for _ in range(0, 2)]
         self.res_3 = [ResidualBlock(filters=[128, 256], kernel_size=[1, 3]) for _ in range(0, 8)]
         self.res_4 = [ResidualBlock(filters=[256, 512], kernel_size=[1, 3]) for _ in range(0, 8)]
-        self.res_5 = [ResidualBlock(filters=[512, 1024], kernel_size=[1, 3]) for _ in range(0, 8)]
+        self.res_5 = [ResidualBlock(filters=[512, 1024], kernel_size=[1, 3]) for _ in range(0, 4)]
 
     def call(self, inputs, training=False, **kwargs):
         # 2 convolution layers

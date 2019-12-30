@@ -5,7 +5,8 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 import numpy as np
 
-from coco_text.dataset import Dataset, COCOGenerator
+from dataset.coco_text.dataset_generator import COCOGenerator
+from dataset.dataset import Dataset
 from model.yolov3 import YoloV3, yolo_loss, yolo_anchors, yolo_anchor_masks, output_bbox
 from parameters import dataset_choice, IMAGE_SIZE, BATCH_SIZE, BUFFER_SIZE, PREFETCH_SIZE, NUM_CLASS, LEARNING_RATE
 
@@ -21,13 +22,13 @@ print("Num GPUs Available: ", len(physical_devices))
 if len(physical_devices) > 0:
     tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
-
 model = YoloV3(num_class=NUM_CLASS)
 optimizer = tf.keras.optimizers.Adam(lr=LEARNING_RATE)
 ckpt = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optimizer, net=model)
 manager = tf.train.CheckpointManager(ckpt, checkpoint_dir, max_to_keep=5)
 
 
+@tf.function
 def validation(x, y):
     # calculate loss from validation dataset
     pred_s, pred_m, pred_l = model(x)
@@ -42,6 +43,7 @@ def validation(x, y):
     return total_loss, bbox, objectness, class_probs, pred_box
 
 
+@tf.function
 def train_one_step(x, y):
     with tf.GradientTape() as tape:
         pred_s, pred_m, pred_l = model(x, training=True)
@@ -99,7 +101,7 @@ def main(args):
     if args.dataset == 'coco_text':
         # set up dataset config
         imgs_dir = args.dir[0:-1] if args.dir[-1] == '/' else args.dir
-        coco_train_generator = COCOGenerator('./coco_text/cocotext.v2.json',
+        coco_train_generator = COCOGenerator('dataset/coco_text/cocotext.v2.json',
                                              imgs_dir,
                                              mode='train',
                                              batch_size=BATCH_SIZE,
@@ -107,7 +109,7 @@ def main(args):
                                              anchors=yolo_anchors,
                                              anchor_masks=yolo_anchor_masks
                                              )
-        coco_val_generator = COCOGenerator('./coco_text/cocotext.v2.json',
+        coco_val_generator = COCOGenerator('dataset/coco_text/cocotext.v2.json',
                                            imgs_dir,
                                            mode='val',
                                            batch_size=BATCH_SIZE,
