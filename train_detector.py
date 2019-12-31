@@ -6,6 +6,7 @@ import tensorflow as tf
 import numpy as np
 
 from dataset.coco_text.dataset_generator import COCOGenerator
+from dataset.receipt.dataset_generator import ReceiptGenerator
 from dataset.dataset import Dataset
 from model.yolov3 import YoloV3, yolo_loss, yolo_anchors, yolo_anchor_masks, output_bbox
 from parameters import dataset_choice, IMAGE_SIZE, BATCH_SIZE, BUFFER_SIZE, PREFETCH_SIZE, NUM_CLASS, LEARNING_RATE
@@ -33,14 +34,12 @@ def validation(x, y):
     # calculate loss from validation dataset
     pred_s, pred_m, pred_l = model(x)
     true_s, true_m, true_l = y
-    regularization_loss = tf.reduce_sum(model.losses)
     pred_loss = yolo_loss(pred_s, pred_m, pred_l, true_s, true_m, true_l)
-    total_loss = tf.reduce_sum(pred_loss) + regularization_loss
 
     # get bounding box
-    bbox, objectness, class_probs, pred_box = output_bbox((pred_s, pred_m, pred_l))
+    bbox, objectiveness, class_probs, pred_box = output_bbox((pred_s, pred_m, pred_l))
 
-    return total_loss, bbox, objectness, class_probs, pred_box
+    return pred_loss, bbox, objectiveness, class_probs, pred_box
 
 
 @tf.function
@@ -52,13 +51,13 @@ def train_one_step(x, y):
 
         pred_loss = yolo_loss(pred_s, pred_m, pred_l, true_s, true_m, true_l)
 
-        total_loss = tf.reduce_sum(pred_loss) + regularization_loss
+        total_loss = pred_loss + regularization_loss
 
     grads = tape.gradient(total_loss, model.trainable_variables)
     optimizer.apply_gradients(
         zip(grads, model.trainable_variables))
 
-    return total_loss
+    return pred_loss
 
 
 def train(dataset_train, dataset_val):
@@ -84,7 +83,7 @@ def train(dataset_train, dataset_val):
             tf.print("Steps: ", int(ckpt.step))
             # validation ever 100 epochs
             data_val = iterator_val.get_next()
-            loss, bbox, objectness, class_probs, pred_box = validation(data_val['image'], data_val['label'])
+            loss, bbox, objectiveness, class_probs, pred_box = validation(data_val['image'], data_val['label'])
             val_loss.append(loss)
 
             tf.print("Train loss: ", train_loss[-1])
@@ -98,47 +97,61 @@ def train(dataset_train, dataset_val):
 
 
 def main(args):
+    dataset_dir = args.dir[0:-1] if args.dir[-1] == '/' else args.dir
     if args.dataset == 'coco_text':
         # set up dataset config
-        imgs_dir = args.dir[0:-1] if args.dir[-1] == '/' else args.dir
-        coco_train_generator = COCOGenerator('dataset/coco_text/cocotext.v2.json',
-                                             imgs_dir,
-                                             mode='train',
-                                             batch_size=BATCH_SIZE,
-                                             image_input_size=[IMAGE_SIZE, IMAGE_SIZE],
-                                             anchors=yolo_anchors,
-                                             anchor_masks=yolo_anchor_masks
-                                             )
-        coco_val_generator = COCOGenerator('dataset/coco_text/cocotext.v2.json',
-                                           imgs_dir,
-                                           mode='val',
-                                           batch_size=BATCH_SIZE,
-                                           image_input_size=[IMAGE_SIZE, IMAGE_SIZE],
+        train_generator = COCOGenerator('dataset/coco_text/cocotext.v2.json',
+                                        dataset_dir,
+                                        mode='train',
+                                        batch_size=args.batch_size,
+                                        image_input_size=[args.image_size, args.image_size],
+                                        anchors=yolo_anchors,
+                                        anchor_masks=yolo_anchor_masks
+                                        )
+        val_generator = COCOGenerator('dataset/coco_text/cocotext.v2.json',
+                                      dataset_dir,
+                                      mode='val',
+                                      batch_size=args.batch_size,
+                                      image_input_size=[args.image_size, args.image_size],
+                                      anchors=yolo_anchors,
+                                      anchor_masks=yolo_anchor_masks
+                                      )
+    else:
+        train_generator = ReceiptGenerator(dataset_dir,
+                                           batch_size=args.batch_size,
+                                           image_input_size=[args.image_size, args.image_size],
                                            anchors=yolo_anchors,
                                            anchor_masks=yolo_anchor_masks
                                            )
-        coco_train_generator.set_dataset_info()
-        coco_val_generator.set_dataset_info()
+        val_generator = ReceiptGenerator(dataset_dir,
+                                         batch_size=args.batch_size,
+                                         image_input_size=[args.image_size, args.image_size],
+                                         anchors=yolo_anchors,
+                                         anchor_masks=yolo_anchor_masks
+                                         )
 
-        dataset_train_generator = Dataset(
-            generator=coco_train_generator,
-            image_input_size=[IMAGE_SIZE, IMAGE_SIZE],
-            batch_size=BATCH_SIZE,
-            buffer_size=BUFFER_SIZE,
-            prefetch_size=PREFETCH_SIZE
-        )
-        dataset_val_generator = Dataset(
-            generator=coco_val_generator,
-            image_input_size=[IMAGE_SIZE, IMAGE_SIZE],
-            batch_size=BATCH_SIZE,
-            buffer_size=BUFFER_SIZE,
-            prefetch_size=PREFETCH_SIZE
-        )
-        dataset_train = dataset_train_generator.create_dataset()
-        dataset_val = dataset_val_generator.create_dataset()
+    train_generator.set_dataset_info()
+    val_generator.set_dataset_info()
 
-        # train network
-        train(dataset_train, dataset_val)
+    dataset_train_generator = Dataset(
+        generator=train_generator,
+        image_input_size=[args.image_size, args.image_size],
+        batch_size=args.batch_size,
+        buffer_size=BUFFER_SIZE,
+        prefetch_size=PREFETCH_SIZE
+    )
+    dataset_val_generator = Dataset(
+        generator=val_generator,
+        image_input_size=[args.image_size, args.image_size],
+        batch_size=args.batch_size,
+        buffer_size=BUFFER_SIZE,
+        prefetch_size=PREFETCH_SIZE
+    )
+    dataset_train = dataset_train_generator.create_dataset()
+    dataset_val = dataset_val_generator.create_dataset()
+
+    # train network
+    train(dataset_train, dataset_val)
 
 
 def plot_bounding_box(img, label):
@@ -149,15 +162,16 @@ def plot_bounding_box(img, label):
 
     # normalize image to [0, 1]
     img = (img + 1) / 2
+    img_h, img_w = img.shape[0], img.shape[1]
 
     # plot graph
     fig, ax = plt.subplots(1)
     ax.imshow(img)
     for i, bbox in enumerate(label):
         x1, y1, x2, y2 = bbox
-        w = abs(x2 - x1) * IMAGE_SIZE
-        h = abs(y2 - y1) * IMAGE_SIZE
-        x, y = x1 * IMAGE_SIZE, y1 * IMAGE_SIZE
+        w = abs(x2 - x1) * img_w
+        h = abs(y2 - y1) * img_h
+        x, y = x1 * img_w, y1 * img_h
 
         rect = mpatches.Rectangle((x, y), w, h, linewidth=2,
                                   edgecolor=c[i], facecolor='none')
@@ -174,7 +188,9 @@ if __name__ == '__main__':
         nargs='?',
         help='Enter the dataset'
     )
-    parser.add_argument('-d', '--dir', help='Enter the directory of dataset', required=True)
+    parser.add_argument('-d', '--dir', help='Directory of dataset', required=True)
+    parser.add_argument('-b', '--batch_size', default=BATCH_SIZE, help='Batch size')
+    parser.add_argument('-i', '--image_size', default=IMAGE_SIZE, help='Reshape size of the image')
     args = parser.parse_args()
 
     main(args)

@@ -23,11 +23,11 @@ class Dataset:
 
         # resize and pad image to required input size
         img = self.resize_image(img, self.image_input_size)
+        element['image'] = img
         # format label
+        element['label'] = tuple([scale_1_label, scale_2_label, scale_3_label])
 
-        data = {'image': img, 'label': tuple([scale_1_label, scale_2_label, scale_3_label])}
-
-        return data
+        return element
 
     def create_dataset(self):
         dataset = tf.data.Dataset.from_generator(

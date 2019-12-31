@@ -7,11 +7,11 @@ from tensorflow.keras.losses import (
 
 from .darknet import Darknet53
 from .layers import MyConv2D, ResidualBlock, Concatenate, UpSampling2D
-from parameters import NUM_CLASS, yolo_score_threshold, yolo_iou_threshold
+from parameters import IMAGE_SIZE, NUM_CLASS, yolo_score_threshold, yolo_iou_threshold
 
 yolo_anchors = np.array([(10, 13), (16, 30), (33, 23), (30, 61), (62, 45),
                          (59, 119), (116, 90), (156, 198), (373, 326)],
-                        np.float32) / 416
+                        np.float32) / IMAGE_SIZE
 yolo_anchor_masks = np.array([[6, 7, 8], [3, 4, 5], [0, 1, 2]])
 
 
@@ -46,7 +46,7 @@ def yolo_loss(pred_sbbox, pred_mbbox, pred_lbbox, true_sbbox, true_mbbox, true_l
     loss_mbbox = loss_layer(pred_mbbox, true_mbbox, anchors[masks[1]])
     loss_lbbox = loss_layer(pred_lbbox, true_lbbox, anchors[masks[2]])
 
-    return loss_sbbox + loss_mbbox + loss_lbbox
+    return tf.reduce_sum(loss_sbbox + loss_mbbox + loss_lbbox)
 
 
 def loss_layer(y_pred, y_true, anchors):

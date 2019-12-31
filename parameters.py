@@ -1,5 +1,5 @@
-dataset_choice = ['coco_text']
-IMAGE_SIZE = 416
+dataset_choice = ['coco_text', 'receipt']
+IMAGE_SIZE = 608
 BATCH_SIZE = 1
 BUFFER_SIZE = 320
 PREFETCH_SIZE = 5

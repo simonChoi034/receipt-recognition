@@ -1,42 +1,46 @@
+import os
+import re
 import math
-import json
-
 import numpy as np
+import imagesize
+import matplotlib.pyplot as plt
 
-from dataset.coco_text.coco_text import COCO_Text
 
-
-class COCOGenerator:
-    def __init__(self, label_dir, dataset_dir, mode, batch_size, image_input_size, anchors, anchor_masks):
-        self.ct = COCO_Text(label_dir)
-        self.dataset_dir = dataset_dir
-        self.mode = mode
+class ReceiptGenerator:
+    def __init__(self, dataset_dir, batch_size, image_input_size, anchors, anchor_masks):
+        self.filenames = sorted(
+            [os.path.join(dataset_dir, f) for f in os.listdir(dataset_dir) if re.match(r'X[0-9]+\.jpg', f)])
+        self.label_files = sorted(
+            [os.path.join(dataset_dir, f) for f in os.listdir(dataset_dir) if re.match(r'X[0-9]+\.txt', f)])
         self.batch_size = batch_size
         self.image_input_size = image_input_size
         self.anchors = anchors
         self.anchor_masks = anchor_masks
-        self.img_metas = []
-        self.faulty_img = json.load(open('./coco_text/faulty_image.json', 'r'))['faulty_image']
 
-    def set_img_metas(self):
-        # set mode
-        if self.mode == 'train':
-            imgIds = self.ct.train
-        elif self.mode == 'val':
-            imgIds = self.ct.val
-        else:
-            imgIds = self.ct.test
+    def read_label_file(self, file):
+        image_file = file.replace('txt', 'jpg')
+        width, height = imagesize.get(image_file)
 
-        img_ids = self.ct.getImgIds(imgIds=imgIds, catIds=[('legibility', 'legible')])
-        self.img_metas = self.ct.loadImgs(img_ids)
+        bboxes = []
+        with open(file, 'r') as f:
+            for line in f.readlines():
+                line = line.split(',')
+                line = np.asarray(line[:8]).astype(float)
+                line = line.reshape((4, 2))
 
-        if self.mode != 'train':
-            self.img_metas = np.random.choice(self.img_metas, self.batch_size)
+                x, y = line[..., 0], line[..., 1]
+                x_min, x_max = min(x), max(x)
+                y_min, y_max = min(y), max(y)
+                w, h = x_max - x_min, y_max - y_min
+                x_cen, y_cen = x_min + w / 2, y_min + h / 2
 
-    def set_filename(self):
-        # ['path_to_file', ...]
-        for img_meta in self.img_metas:
-            img_meta['file_name'] = '%s/%s' % (self.dataset_dir, img_meta['file_name'])
+                bbox = [x_cen, y_cen, w, h]
+                bboxes.append(bbox)
+
+        bboxes = self.resize_label(np.asarray(bboxes), [height, width])
+        class_id = np.ones((len(bboxes), 1))
+
+        return np.concatenate((bboxes, class_id), axis=-1)
 
     def transform_targets_for_output(self, y_true, grid_size, anchor_idxs):
         # y_true: (boxes, (x, y, w, h, class, best_anchor))
@@ -84,37 +88,9 @@ class COCOGenerator:
 
         return y_outs
 
-    def parse_label(self, fn, img_mate):
-        # get bounding box
-        label = fn(img_mate['id'])
-        img_h, img_w = img_mate['height'], img_mate['width']
-        label = np.asarray([l['bbox'] for l in label])
-        # apply transformation to each label
-        label = self.resize_label(label, [img_h, img_w])
-        # add class id to each bbox
-        class_ids = np.ones((label.shape[0], 1))
-        label = np.concatenate([label, class_ids], axis=-1)
-
-        label = self.transform_label(label)
-
-        return label
-
-    def set_labels(self):
-        fn = lambda x: self.ct.loadAnns(self.ct.getAnnIds(imgIds=x))
-        labels = [self.parse_label(fn, img_mate) for img_mate in self.img_metas]
-
-        self.labels = labels
-
-    def transforming_center(self, label):
-        for element in label:
-            element[0] += element[2] / 2
-            element[1] += element[3] / 2
-        return label
-
     def resize_label(self, label, original_dim):
         # change top-left xy to center xy
         # [x, y, w, h] -> [center_x, center_y, w, h]
-        label = self.transforming_center(label)
 
         # normalize label
         img_h, img_w = original_dim
@@ -128,26 +104,37 @@ class COCOGenerator:
 
         return label * multiplier
 
-    def clean_image(self):
-        def filter_func(n):
-            return n['file_name'] not in self.faulty_img
-
-        self.img_metas = list(filter(filter_func, self.img_metas))
+    def set_labels(self):
+        bboxes = np.asarray([self.read_label_file(file) for file in self.label_files])
+        labels = np.asarray([self.transform_label(label) for label in bboxes])
+        self.bboxes = bboxes
+        self.labels = labels
 
     def set_dataset_info(self):
-        self.set_img_metas()
-        self.clean_image()
-        self.set_filename()
         self.set_labels()
+
+    def plt_img_dim_cluster(self):
+        bboxes = self.bboxes[0]
+        for l in self.bboxes:
+            bboxes = np.concatenate((bboxes, l), axis=0)
+        print(bboxes.shape)
+        w = bboxes[..., 2]
+        h = bboxes[..., 3]
+
+        plt.scatter(w, h, s=0.1)
+        plt.show()
+        plt.close()
 
     def gen_next_pair(self):
         while True:
-            index = np.random.randint(0, len(self.img_metas))
+            index = np.random.randint(0, len(self.filenames))
 
-            img, label = self.img_metas[index]['file_name'], self.labels[index]
+            img, label = self.filenames[index], self.labels[index]
             scale_1_label, scale_2_label, scale_3_label = label[0], label[1], label[2]
 
             yield ({
                 'image': img,
-                'label': tuple([scale_1_label, scale_2_label, scale_3_label])
+                'scale_1_label': scale_1_label,
+                'scale_2_label': scale_2_label,
+                'scale_3_label': scale_3_label
             })
