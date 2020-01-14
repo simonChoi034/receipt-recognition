@@ -111,7 +111,7 @@ def train(dataset_train, dataset_val):
         if train_loss <= 5.0:
             print("Early stopping")
             print("Final training loss {:1.2f}".format(train_loss))
-            exit()
+            return
 
 
 def main(args):
@@ -184,6 +184,10 @@ def main(args):
     # train network
     train(dataset_train, dataset_val)
 
+    # stop vm after training finished
+    if args.s:
+        os.system('sudo shutdown -h now')
+
 
 def plot_bounding_box(img, label, steps):
     # set random color
@@ -224,6 +228,7 @@ if __name__ == '__main__':
     parser.add_argument('-d', '--dir', help='Directory of dataset', required=True)
     parser.add_argument('-b', '--batch_size', default=BATCH_SIZE, help='Batch size')
     parser.add_argument('-i', '--image_size', default=IMAGE_SIZE, help='Reshape size of the image')
+    parser.add_argument('-s', action='store_true', help='Shut down vm after training stop')
     args = parser.parse_args()
 
     main(args)
