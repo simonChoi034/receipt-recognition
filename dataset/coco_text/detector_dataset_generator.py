@@ -1,6 +1,7 @@
-import math
 import json
+import math
 
+import matplotlib.pyplot as plt
 import numpy as np
 
 from dataset.coco_text.coco_text import COCO_Text
@@ -16,7 +17,8 @@ class COCOGenerator:
         self.anchors = anchors
         self.anchor_masks = anchor_masks
         self.img_metas = []
-        self.faulty_img = json.load(open('./coco_text/faulty_image.json', 'r'))['faulty_image']
+        self.faulty_img = json.load(open('dataset/coco_text/faulty_image.json', 'r'))['faulty_image']
+        self.bboxes = np.zeros((1, 4))
 
     def set_img_metas(self):
         # set mode
@@ -89,8 +91,11 @@ class COCOGenerator:
         label = fn(img_mate['id'])
         img_h, img_w = img_mate['height'], img_mate['width']
         label = np.asarray([l['bbox'] for l in label])
+
         # apply transformation to each label
         label = self.resize_label(label, [img_h, img_w])
+        self.bboxes = np.append(self.bboxes, label, axis=0)
+
         # add class id to each bbox
         class_ids = np.ones((label.shape[0], 1))
         label = np.concatenate([label, class_ids], axis=-1)
@@ -133,6 +138,15 @@ class COCOGenerator:
             return n['file_name'] not in self.faulty_img
 
         self.img_metas = list(filter(filter_func, self.img_metas))
+
+    def plt_img_dim_cluster(self):
+        bboxes = self.bboxes
+        w = bboxes[..., 2]
+        h = bboxes[..., 3]
+
+        plt.scatter(w, h, s=0.1)
+        plt.show()
+        plt.close()
 
     def set_dataset_info(self):
         self.set_img_metas()

@@ -1,7 +1,7 @@
 import tensorflow as tf
 
 
-class Dataset:
+class DetectorDataset:
     def __init__(self, generator, image_input_size, batch_size, buffer_size, prefetch_size):
         self.generator = generator
         self.image_input_size = image_input_size
@@ -45,3 +45,8 @@ class Dataset:
         dataset = dataset.prefetch(buffer_size=self.prefetch_size)
 
         return dataset
+
+
+class ClassifierDataset:
+    def __init__(self, generator):
+        self.generator = generator

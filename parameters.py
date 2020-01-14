@@ -1,4 +1,4 @@
-dataset_choice = ['coco_text', 'receipt']
+dataset_choice = ['coco_text', 'receipt', 'synthtext']
 IMAGE_SIZE = 608
 BATCH_SIZE = 1
 BUFFER_SIZE = 320

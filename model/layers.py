@@ -1,6 +1,6 @@
 import tensorflow as tf
 from tensorflow.keras import layers
-from tensorflow.keras.layers import Conv2D, BatchNormalization, LeakyReLU, Concatenate, UpSampling2D
+from tensorflow.keras.layers import Conv2D, BatchNormalization, LeakyReLU
 from tensorflow.keras.regularizers import l2
 
 

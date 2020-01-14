@@ -1,5 +1,6 @@
-from skimage import io
 import os
+
+from skimage import io
 
 error_image = []
 

@@ -1,14 +1,17 @@
 import argparse
+import os
+import datetime
 
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
-import tensorflow as tf
 import numpy as np
+import tensorflow as tf
 
-from dataset.coco_text.dataset_generator import COCOGenerator
-from dataset.receipt.dataset_generator import ReceiptGenerator
-from dataset.dataset import Dataset
-from model.yolov3 import YoloV3, yolo_loss, yolo_anchors, yolo_anchor_masks, output_bbox
+from dataset.coco_text.detector_dataset_generator import COCOGenerator
+from dataset.dataset import DetectorDataset
+from dataset.receipt.detector_dataset_generator import ReceiptGenerator
+from dataset.synthtext.detector_dataset_generator import SynthTextGenerator
+from model.yolov3 import YoloV3, yolo_loss, yolo_anchors, yolo_anchor_masks, output_bbox, mean_average_precision
 from parameters import dataset_choice, IMAGE_SIZE, BATCH_SIZE, BUFFER_SIZE, PREFETCH_SIZE, NUM_CLASS, LEARNING_RATE
 
 try:
@@ -39,7 +42,9 @@ def validation(x, y):
     # get bounding box
     bbox, objectiveness, class_probs, pred_box = output_bbox((pred_s, pred_m, pred_l))
 
-    return pred_loss, bbox, objectiveness, class_probs, pred_box
+    mAP = mean_average_precision(y, bbox)
+
+    return pred_loss, mAP, bbox, objectiveness, class_probs, pred_box
 
 
 @tf.function
@@ -61,6 +66,13 @@ def train_one_step(x, y):
 
 
 def train(dataset_train, dataset_val):
+    # setup tensorboard
+    current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    train_log_dir = 'logs/gradient_tape/' + current_time + '/train'
+    val_log_dir = 'logs/gradient_tape/' + current_time + '/test'
+    train_summary_writer = tf.summary.create_file_writer(train_log_dir)
+    val_summary_writer = tf.summary.create_file_writer(val_log_dir)
+
     # restore checkpoint
     ckpt.restore(manager.latest_checkpoint)
     if manager.latest_checkpoint:
@@ -68,32 +80,38 @@ def train(dataset_train, dataset_val):
     else:
         print("Initializing from scratch.")
 
-    train_loss = []
-    val_loss = []
-
     iterator_val = dataset_val.make_one_shot_iterator()
 
     for data in dataset_train:
-        loss = train_one_step(data['image'], data['label'])
-        train_loss.append(loss)
+        train_loss = train_one_step(data['image'], data['label'])
 
         ckpt.step.assign_add(1)
 
         if int(ckpt.step) % 100 == 0:
             tf.print("Steps: ", int(ckpt.step))
             # validation ever 100 epochs
+            loss, mAP, bbox, _, _, _ = validation(data['image'], data['label'])
+            with train_summary_writer.as_default():
+                tf.summary.scalar('loss', loss, step=ckpt.step)
+                tf.summary.scalar('accuracy', mAP, step=ckpt.step)
+
             data_val = iterator_val.get_next()
-            loss, bbox, objectiveness, class_probs, pred_box = validation(data_val['image'], data_val['label'])
-            val_loss.append(loss)
+            loss, mAP, bbox, _, _, _ = validation(data_val['image'], data_val['label'])
+            with val_summary_writer.as_default():
+                tf.summary.scalar('loss', loss, step=ckpt.step)
+                tf.summary.scalar('accuracy', manager, step=ckpt.step)
 
-            tf.print("Train loss: ", train_loss[-1])
-            tf.print("Validation loss: ", val_loss[-1])
-
-            plot_bounding_box(data_val['image'].numpy()[0], bbox.numpy()[0])
+            # plot bounding box in image
+            plot_bounding_box(data_val['image'].numpy()[0], bbox.numpy()[0], ckpt.step)
 
             save_path = manager.save()
             print("Saved checkpoint for step {}: {}".format(int(ckpt.step), save_path))
-            print("loss {:1.2f}".format(loss.numpy()))
+            print("validation loss {:1.2f}".format(loss.numpy()))
+
+        if train_loss <= 5.0:
+            print("Early stopping")
+            print("Final training loss {:1.2f}".format(train_loss))
+            exit()
 
 
 def main(args):
@@ -116,15 +134,28 @@ def main(args):
                                       anchors=yolo_anchors,
                                       anchor_masks=yolo_anchor_masks
                                       )
+    elif args.dataset == 'synthtext':
+        train_generator = SynthTextGenerator(os.path.join(dataset_dir, 'gt.mat'),
+                                             dataset_dir,
+                                             mode='train',
+                                             image_input_size=[args.image_size, args.image_size],
+                                             anchors=yolo_anchors,
+                                             anchor_masks=yolo_anchor_masks
+                                             )
+        val_generator = SynthTextGenerator(os.path.join(dataset_dir, 'gt.mat'),
+                                           dataset_dir,
+                                           mode='val',
+                                           image_input_size=[args.image_size, args.image_size],
+                                           anchors=yolo_anchors,
+                                           anchor_masks=yolo_anchor_masks
+                                           )
     else:
         train_generator = ReceiptGenerator(dataset_dir,
-                                           batch_size=args.batch_size,
                                            image_input_size=[args.image_size, args.image_size],
                                            anchors=yolo_anchors,
                                            anchor_masks=yolo_anchor_masks
                                            )
         val_generator = ReceiptGenerator(dataset_dir,
-                                         batch_size=args.batch_size,
                                          image_input_size=[args.image_size, args.image_size],
                                          anchors=yolo_anchors,
                                          anchor_masks=yolo_anchor_masks
@@ -133,14 +164,14 @@ def main(args):
     train_generator.set_dataset_info()
     val_generator.set_dataset_info()
 
-    dataset_train_generator = Dataset(
+    dataset_train_generator = DetectorDataset(
         generator=train_generator,
         image_input_size=[args.image_size, args.image_size],
         batch_size=args.batch_size,
         buffer_size=BUFFER_SIZE,
         prefetch_size=PREFETCH_SIZE
     )
-    dataset_val_generator = Dataset(
+    dataset_val_generator = DetectorDataset(
         generator=val_generator,
         image_input_size=[args.image_size, args.image_size],
         batch_size=args.batch_size,
@@ -154,7 +185,7 @@ def main(args):
     train(dataset_train, dataset_val)
 
 
-def plot_bounding_box(img, label):
+def plot_bounding_box(img, label, steps):
     # set random color
     colors = np.random.rand(500)
     cmap = plt.cm.RdYlBu_r
@@ -176,7 +207,9 @@ def plot_bounding_box(img, label):
         rect = mpatches.Rectangle((x, y), w, h, linewidth=2,
                                   edgecolor=c[i], facecolor='none')
         ax.add_patch(rect)
-    plt.show()
+    plt.savefig("./figure/image_{}.png".format(steps/100 % 30))
+    plt.draw()
+    plt.pause(0.01)
 
 
 if __name__ == '__main__':

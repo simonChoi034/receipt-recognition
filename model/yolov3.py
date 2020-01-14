@@ -1,20 +1,129 @@
 import numpy as np
 import tensorflow as tf
+from tensorflow.keras.layers import Concatenate, UpSampling2D
 from tensorflow.keras.losses import (
     binary_crossentropy,
     sparse_categorical_crossentropy
 )
 
-from .darknet import Darknet53
-from .layers import MyConv2D, ResidualBlock, Concatenate, UpSampling2D
 from parameters import IMAGE_SIZE, NUM_CLASS, yolo_score_threshold, yolo_iou_threshold
+from .darknet import Darknet53
+from .layers import MyConv2D, ResidualBlock
 
-yolo_anchors = np.array([(10, 13), (16, 30), (33, 23), (30, 61), (62, 45),
-                         (59, 119), (116, 90), (156, 198), (373, 326)],
+yolo_anchors = np.array([[16, 18],
+                         [30, 18],
+                         [42, 18],
+                         [25, 30],
+                         [40, 28],
+                         [60, 19],
+                         [51, 23],
+                         [74, 21],
+                         [39, 43],
+                         [53, 36],
+                         [64, 30],
+                         [91, 24],
+                         [79, 34],
+                         [109, 26],
+                         [67, 44],
+                         [55, 54],
+                         [130, 29],
+                         [97, 39],
+                         [83, 50],
+                         [73, 66],
+                         [53, 91],
+                         [156, 32],
+                         [116, 46],
+                         [101, 60],
+                         [138, 51],
+                         [185, 38],
+                         [93, 83],
+                         [126, 73],
+                         [221, 43],
+                         [161, 60],
+                         [116, 106],
+                         [266, 47],
+                         [193, 71],
+                         [157, 91],
+                         [235, 83],
+                         [330, 60],
+                         [152, 137],
+                         [200, 113],
+                         [286, 90],
+                         [402, 80],
+                         [263, 136],
+                         [210, 185],
+                         [345, 130],
+                         [498, 114],
+                         [344, 243]],
                         np.float32) / IMAGE_SIZE
-yolo_anchor_masks = np.array([[6, 7, 8], [3, 4, 5], [0, 1, 2]])
+yolo_anchor_masks = np.array([range(30, 45), range(15, 30), range(0, 15)])
 
 
+def parse_label(label):
+    def transform_label_format(x):
+        # [x_cen, y_cen, w, h] => [x_min, y_min, x_max, y_max]
+        x_cen, y_cen, w, h = x
+        return np.asarray([x_cen - w / 2, y_cen - h / 2, x_cen + w / 2, y_cen + h / 2])
+
+    label = label.reshape((-1, 6))
+    true_map = list(map(lambda x: not np.array_equal([0, 0, 0, 0, 0, 0], x), label))
+    index = np.argwhere(true_map).reshape(-1)
+    filtered_label = label[index]
+    filtered_label = filtered_label[..., 0:4]
+    filtered_label = np.asarray(map(transform_label_format, filtered_label))
+
+    return filtered_label
+
+
+def iou(boxA, boxB):
+    # determine the (x, y)-coordinates of the intersection rectangle
+    xA = max(boxA[0], boxB[0])
+    yA = max(boxA[1], boxB[1])
+    xB = min(boxA[2], boxB[2])
+    yB = min(boxA[3], boxB[3])
+
+    # compute the area of intersection rectangle
+    interArea = max(0, xB - xA + 1) * max(0, yB - yA + 1)
+
+    # compute the area of both the prediction and ground-truth
+    # rectangles
+    boxAArea = (boxA[2] - boxA[0] + 1) * (boxA[3] - boxA[1] + 1)
+    boxBArea = (boxB[2] - boxB[0] + 1) * (boxB[3] - boxB[1] + 1)
+
+    # compute the intersection over union by taking the intersection
+    # area and dividing it by the sum of prediction + ground-truth
+    # areas - the interesection area
+    iou = interArea / float(boxAArea + boxBArea - interArea)
+
+    # return the intersection over union value
+    return iou
+
+
+def mean_average_precision(y_true, y_pred):
+    y_true = parse_label(y_true)
+
+    P = len(y_pred)
+    TP = 0
+
+    for gt_box in y_true:
+        iou_score = max([iou(gt_box, pred) for pred in y_pred])
+        if iou_score >= 0.5:
+            TP += 1
+
+    return TP/P
+
+
+def yolo_loss(pred_sbbox, pred_mbbox, pred_lbbox, true_sbbox, true_mbbox, true_lbbox):
+    anchors = yolo_anchors
+    masks = yolo_anchor_masks
+    loss_sbbox = loss_layer(pred_sbbox, true_sbbox, anchors[masks[0]])
+    loss_mbbox = loss_layer(pred_mbbox, true_mbbox, anchors[masks[1]])
+    loss_lbbox = loss_layer(pred_lbbox, true_lbbox, anchors[masks[2]])
+
+    return tf.reduce_sum(loss_sbbox + loss_mbbox + loss_lbbox)
+
+
+# reference code from https://github.com/zzh8829/yolov3-tf2/blob/master/yolov3_tf2/models.py
 def broadcast_iou(box_1, box_2):
     # box_1: (..., (x1, y1, x2, y2))
     # box_2: (N, (x1, y1, x2, y2))
@@ -37,16 +146,6 @@ def broadcast_iou(box_1, box_2):
     box_2_area = (box_2[..., 2] - box_2[..., 0]) * \
                  (box_2[..., 3] - box_2[..., 1])
     return int_area / (box_1_area + box_2_area - int_area)
-
-
-def yolo_loss(pred_sbbox, pred_mbbox, pred_lbbox, true_sbbox, true_mbbox, true_lbbox):
-    anchors = yolo_anchors
-    masks = yolo_anchor_masks
-    loss_sbbox = loss_layer(pred_sbbox, true_sbbox, anchors[masks[0]])
-    loss_mbbox = loss_layer(pred_mbbox, true_mbbox, anchors[masks[1]])
-    loss_lbbox = loss_layer(pred_lbbox, true_lbbox, anchors[masks[2]])
-
-    return tf.reduce_sum(loss_sbbox + loss_mbbox + loss_lbbox)
 
 
 def loss_layer(y_pred, y_true, anchors):
@@ -106,7 +205,6 @@ def loss_layer(y_pred, y_true, anchors):
     return xy_loss + wh_loss + obj_loss + class_loss
 
 
-# reference code from https://github.com/zzh8829/yolov3-tf2/blob/master/yolov3_tf2/models.py
 def yolo_boxes(pred, anchors):
     # pred: (batch_size, grid, grid, anchors, (x, y, w, h, obj, ...classes))
     grid_size = tf.shape(pred)[1]
