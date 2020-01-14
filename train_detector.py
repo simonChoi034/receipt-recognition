@@ -226,8 +226,8 @@ if __name__ == '__main__':
         help='Enter the dataset'
     )
     parser.add_argument('-d', '--dir', help='Directory of dataset', required=True)
-    parser.add_argument('-b', '--batch_size', default=BATCH_SIZE, help='Batch size')
-    parser.add_argument('-i', '--image_size', default=IMAGE_SIZE, help='Reshape size of the image')
+    parser.add_argument('-b', '--batch_size', type=int, default=BATCH_SIZE, help='Batch size')
+    parser.add_argument('-i', '--image_size', type=int, default=IMAGE_SIZE, help='Reshape size of the image')
     parser.add_argument('-s', action='store_true', help='Shut down vm after training stop')
     args = parser.parse_args()
 
