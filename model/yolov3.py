@@ -10,53 +10,38 @@ from parameters import IMAGE_SIZE, NUM_CLASS, yolo_score_threshold, yolo_iou_thr
 from .darknet import Darknet53
 from .layers import MyConv2D, ResidualBlock
 
-yolo_anchors = np.array([[16, 18],
-                         [30, 18],
-                         [42, 18],
-                         [25, 30],
-                         [40, 28],
-                         [60, 19],
-                         [51, 23],
-                         [74, 21],
-                         [39, 43],
-                         [53, 36],
-                         [64, 30],
-                         [91, 24],
-                         [79, 34],
-                         [109, 26],
-                         [67, 44],
-                         [55, 54],
-                         [130, 29],
-                         [97, 39],
-                         [83, 50],
-                         [73, 66],
-                         [53, 91],
-                         [156, 32],
-                         [116, 46],
-                         [101, 60],
-                         [138, 51],
-                         [185, 38],
-                         [93, 83],
-                         [126, 73],
-                         [221, 43],
-                         [161, 60],
-                         [116, 106],
-                         [266, 47],
-                         [193, 71],
-                         [157, 91],
-                         [235, 83],
-                         [330, 60],
-                         [152, 137],
-                         [200, 113],
-                         [286, 90],
-                         [402, 80],
-                         [263, 136],
-                         [210, 185],
-                         [345, 130],
-                         [498, 114],
-                         [344, 243]],
+yolo_anchors = np.array([[18, 19],
+                         [34, 19],
+                         [47, 21],
+                         [34, 35],
+                         [62, 22],
+                         [52, 34],
+                         [78, 25],
+                         [97, 27],
+                         [68, 39],
+                         [52, 54],
+                         [87, 43],
+                         [116, 34],
+                         [140, 30],
+                         [75, 63],
+                         [105, 57],
+                         [169, 40],
+                         [137, 56],
+                         [91, 90],
+                         [204, 46],
+                         [126, 84],
+                         [169, 76],
+                         [248, 54],
+                         [147, 124],
+                         [305, 60],
+                         [212, 94],
+                         [275, 111],
+                         [367, 88],
+                         [209, 164],
+                         [472, 103],
+                         [336, 198]],
                         np.float32) / IMAGE_SIZE
-yolo_anchor_masks = np.array([range(30, 45), range(15, 30), range(0, 15)])
+yolo_anchor_masks = np.array([range(20, 30), range(10, 20), range(0, 10)])
 
 
 def parse_label(label):
@@ -110,7 +95,7 @@ def mean_average_precision(y_true, y_pred):
         if iou_score >= 0.5:
             TP += 1
 
-    return TP/P
+    return TP / P
 
 
 def yolo_loss(pred_sbbox, pred_mbbox, pred_lbbox, true_sbbox, true_mbbox, true_lbbox):
