@@ -90,9 +90,9 @@ def mean_average_precision(y_true, y_pred):
     P = len(y_pred)
     TP = 0
 
-    for gt_box in y_true:
-        iou_score = max([iou(gt_box, pred) for pred in y_pred])
-        if iou_score >= 0.5:
+    for pred_box in y_pred:
+        iou_score = max([iou(gt_box, pred_box) for gt_box in y_true])
+        if iou_score > 0.5:
             TP += 1
 
     return TP / P
