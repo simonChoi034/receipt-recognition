@@ -42,7 +42,7 @@ def validation(x, y):
     # get bounding box
     bbox, objectiveness, class_probs, pred_box = output_bbox((pred_s, pred_m, pred_l))
 
-    mAP = mean_average_precision(y, bbox)
+    mAP = mean_average_precision(true_s, bbox)
 
     return pred_loss, mAP, bbox, objectiveness, class_probs, pred_box
 
