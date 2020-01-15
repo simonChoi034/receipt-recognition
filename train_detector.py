@@ -224,13 +224,14 @@ def plot_bounding_box(img, label, steps, mode):
         rect = mpatches.Rectangle((x, y), w, h, linewidth=2,
                                   edgecolor=c[i], facecolor='none')
         ax.add_patch(rect)
-    # convert to numpy array
-    fig.canvas.draw()
-    image = np.array(fig.canvas.renderer.buffer_rgba())
 
-    plt.savefig("./figure/{}/image_{}.png".format(mode, int(steps / 100 % 30)))
+    img_file = "./figure/{}/image_{}.png".format(mode, int(steps / 100 % 30))
+    plt.savefig(img_file)
     plt.draw()
     plt.pause(0.01)
+
+    image = plt.imread(img_file)
+    image = np.expand_dims(image, axis=0)
 
     return image
 
