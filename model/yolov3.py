@@ -44,22 +44,6 @@ yolo_anchors = np.array([[18, 19],
 yolo_anchor_masks = np.array([range(20, 30), range(10, 20), range(0, 10)])
 
 
-def parse_label(label):
-    def transform_label_format(x):
-        # [x_cen, y_cen, w, h] => [x_min, y_min, x_max, y_max]
-        x_cen, y_cen, w, h = x
-        return np.asarray([x_cen - w / 2, y_cen - h / 2, x_cen + w / 2, y_cen + h / 2])
-
-    label = label.reshape((-1, 6))
-    true_map = list(map(lambda x: not np.array_equal([0, 0, 0, 0, 0, 0], x), label))
-    index = np.argwhere(true_map).reshape(-1)
-    filtered_label = label[index]
-    filtered_label = filtered_label[..., 0:4]
-    filtered_label = np.asarray(map(transform_label_format, filtered_label))
-
-    return filtered_label
-
-
 def iou(boxA, boxB):
     # determine the (x, y)-coordinates of the intersection rectangle
     xA = max(boxA[0], boxB[0])
@@ -68,12 +52,13 @@ def iou(boxA, boxB):
     yB = min(boxA[3], boxB[3])
 
     # compute the area of intersection rectangle
-    interArea = max(0, xB - xA + 1) * max(0, yB - yA + 1)
-
+    interArea = abs(max((xB - xA, 0)) * max((yB - yA), 0))
+    if interArea == 0:
+        return 0
     # compute the area of both the prediction and ground-truth
     # rectangles
-    boxAArea = (boxA[2] - boxA[0] + 1) * (boxA[3] - boxA[1] + 1)
-    boxBArea = (boxB[2] - boxB[0] + 1) * (boxB[3] - boxB[1] + 1)
+    boxAArea = abs((boxA[2] - boxA[0]) * (boxA[3] - boxA[1]))
+    boxBArea = abs((boxB[2] - boxB[0]) * (boxB[3] - boxB[1]))
 
     # compute the intersection over union by taking the intersection
     # area and dividing it by the sum of prediction + ground-truth
@@ -84,18 +69,26 @@ def iou(boxA, boxB):
     return iou
 
 
-def mean_average_precision(y_true, y_pred):
-    y_true = parse_label(y_true)
+def mean_average_precision(y_true, y_pred, threshold):
+    def m_ap_per_batch(label, pred):
+        if len(pred) == 0:
+            return 0
 
-    P = len(y_pred)
-    TP = 0
+        TP = 0
+        FP = 0
 
-    for pred_box in y_pred:
-        iou_score = max([iou(gt_box, pred_box) for gt_box in y_true])
-        if iou_score > 0.5:
-            TP += 1
+        for p in pred:
+            iou_score = max(iou(l, p) for l in label)
+            if iou_score > threshold:
+                TP += 1
+            else:
+                FP += 1
 
-    return TP / P
+        return float(TP / (TP + FP))
+
+    mAP = np.mean([m_ap_per_batch(label, pred) for label, pred in zip(y_true, y_pred)])
+
+    return mAP
 
 
 def yolo_loss(pred_sbbox, pred_mbbox, pred_lbbox, true_sbbox, true_mbbox, true_lbbox):
@@ -127,9 +120,9 @@ def broadcast_iou(box_1, box_2):
                        tf.maximum(box_1[..., 1], box_2[..., 1]), 0)
     int_area = int_w * int_h
     box_1_area = (box_1[..., 2] - box_1[..., 0]) * \
-                 (box_1[..., 3] - box_1[..., 1])
+        (box_1[..., 3] - box_1[..., 1])
     box_2_area = (box_2[..., 2] - box_2[..., 0]) * \
-                 (box_2[..., 3] - box_2[..., 1])
+        (box_2[..., 3] - box_2[..., 1])
     return int_area / (box_1_area + box_2_area - int_area)
 
 
@@ -164,9 +157,10 @@ def loss_layer(y_pred, y_true, anchors):
     # 4. calculate all masks
     obj_mask = tf.squeeze(true_obj, -1)
     # ignore false positive when iou is over threshold
-    true_box_flat = tf.boolean_mask(true_box, tf.cast(obj_mask, tf.bool))
-    best_iou = tf.reduce_max(broadcast_iou(
-        pred_box, true_box_flat), axis=-1)
+    best_iou, _, _ = tf.map_fn(
+        lambda x: (tf.reduce_max(broadcast_iou(x[0], tf.boolean_mask(
+            x[1], tf.cast(x[2], tf.bool))), axis=-1), 0, 0),
+        (pred_box, true_box, obj_mask))
     ignore_mask = tf.cast(best_iou < yolo_score_threshold, tf.float32)
 
     # 5. calculate all losses

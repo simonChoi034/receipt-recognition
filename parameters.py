@@ -1,7 +1,7 @@
 dataset_choice = ['coco_text', 'receipt', 'synthtext']
 IMAGE_SIZE = 608
-BATCH_SIZE = 1
-BUFFER_SIZE = 320
+BATCH_SIZE = 2
+BUFFER_SIZE = 300
 PREFETCH_SIZE = 5
 LEARNING_RATE = 0.05
 NUM_CLASS = 2

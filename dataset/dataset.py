@@ -36,7 +36,8 @@ class DetectorDataset:
                 'image': tf.string,
                 'scale_1_label': tf.float32,
                 'scale_2_label': tf.float32,
-                'scale_3_label': tf.float32
+                'scale_3_label': tf.float32,
+                'label_index': tf.int32
             }
         )
         dataset = dataset.shuffle(buffer_size=self.buffer_size)

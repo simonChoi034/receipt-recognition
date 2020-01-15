@@ -31,6 +31,13 @@ optimizer = tf.keras.optimizers.Adam(lr=LEARNING_RATE)
 ckpt = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optimizer, net=model)
 manager = tf.train.CheckpointManager(ckpt, checkpoint_dir, max_to_keep=5)
 
+# setup tensorboard
+current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+train_log_dir = 'logs/gradient_tape/' + current_time + '/train'
+val_log_dir = 'logs/gradient_tape/' + current_time + '/test'
+train_summary_writer = tf.summary.create_file_writer(train_log_dir)
+val_summary_writer = tf.summary.create_file_writer(val_log_dir)
+
 
 @tf.function
 def validation(x, y):
@@ -42,9 +49,7 @@ def validation(x, y):
     # get bounding box
     bbox, objectiveness, class_probs, pred_box = output_bbox((pred_s, pred_m, pred_l))
 
-    mAP = mean_average_precision(true_s, bbox)
-
-    return pred_loss, mAP, bbox, objectiveness, class_probs, pred_box
+    return pred_loss, bbox, objectiveness, class_probs, pred_box
 
 
 @tf.function
@@ -65,22 +70,13 @@ def train_one_step(x, y):
     return pred_loss
 
 
-def train(dataset_train, dataset_val):
-    # setup tensorboard
-    current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    train_log_dir = 'logs/gradient_tape/' + current_time + '/train'
-    val_log_dir = 'logs/gradient_tape/' + current_time + '/test'
-    train_summary_writer = tf.summary.create_file_writer(train_log_dir)
-    val_summary_writer = tf.summary.create_file_writer(val_log_dir)
-
+def train(dataset_train, dataset_val, train_generator, val_generator):
     # restore checkpoint
     ckpt.restore(manager.latest_checkpoint)
     if manager.latest_checkpoint:
         print("Restored from {}".format(manager.latest_checkpoint))
     else:
         print("Initializing from scratch.")
-
-    iterator_val = dataset_val.make_one_shot_iterator()
 
     for data in dataset_train:
         train_loss = train_one_step(data['image'], data['label'])
@@ -90,20 +86,33 @@ def train(dataset_train, dataset_val):
         if int(ckpt.step) % 100 == 0:
             tf.print("Steps: ", int(ckpt.step))
             # validation ever 100 epochs
-            loss, mAP, bbox, _, _, _ = validation(data['image'], data['label'])
-            with train_summary_writer.as_default():
-                tf.summary.scalar('loss', loss, step=ckpt.step)
-                tf.summary.scalar('accuracy', mAP, step=ckpt.step)
+            # Training set
+            loss, bbox, _, _, _ = validation(data['image'], data['label'])
+            index = data['label_index']
+            mAP_50 = mean_average_precision(train_generator.get_bbox(index), bbox.numpy(), 0.5)
+            mAP_75 = mean_average_precision(train_generator.get_bbox(index), bbox.numpy(), 0.75)
 
-            data_val = iterator_val.get_next()
-            loss, mAP, bbox, _, _, _ = validation(data_val['image'], data_val['label'])
+            with train_summary_writer.as_default():
+                tf.summary.scalar('loss', loss, step=int(ckpt.step))
+                tf.summary.scalar('mAP@0.5', mAP_50, step=int(ckpt.step))
+                tf.summary.scalar('mAP@0.75', mAP_75, step=int(ckpt.step))
+
+            # Validation set
+            data_val = next(iter(dataset_val))
+            loss, bbox, _, _, _ = validation(data_val['image'], data_val['label'])
+            index = data_val['label_index']
+            mAP_50 = mean_average_precision(val_generator.get_bbox(index), bbox.numpy(), 0.5)
+            mAP_75 = mean_average_precision(val_generator.get_bbox(index), bbox.numpy(), 0.75)
+
             with val_summary_writer.as_default():
-                tf.summary.scalar('loss', loss, step=ckpt.step)
-                tf.summary.scalar('accuracy', manager, step=ckpt.step)
+                tf.summary.scalar('loss', loss, step=int(ckpt.step))
+                tf.summary.scalar('mAP@0.5', mAP_50, step=int(ckpt.step))
+                tf.summary.scalar('mAP@0.75', mAP_75, step=int(ckpt.step))
 
             # plot bounding box in image
             plot_bounding_box(data_val['image'].numpy()[0], bbox.numpy()[0], ckpt.step)
 
+            # Save checkpoint
             save_path = manager.save()
             print("Saved checkpoint for step {}: {}".format(int(ckpt.step), save_path))
             print("validation loss {:1.2f}".format(loss.numpy()))
@@ -182,7 +191,7 @@ def main(args):
     dataset_val = dataset_val_generator.create_dataset()
 
     # train network
-    train(dataset_train, dataset_val)
+    train(dataset_train, dataset_val, train_generator, val_generator)
 
     # stop vm after training finished
     if args.s:

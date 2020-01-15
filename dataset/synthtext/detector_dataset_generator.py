@@ -45,11 +45,10 @@ class SynthTextGenerator:
             w, h = x_max - x_min, y_max - y_min
             x_cen, y_cen = x_min + w / 2, y_min + h / 2
 
-            # skip bounding box if overflow
-            if 0 <= x_cen <= width and 0 <= y_cen <= height:
-                # append bounding box if not overflow
-                bbox = [x_cen, y_cen, w, h]
-                bboxes.append(bbox)
+            x_cen = max(min(width-0.01, x_cen), 0)
+            y_cen = max(min(height-0.01, y_cen), 0)
+            bbox = [x_cen, y_cen, w, h]
+            bboxes.append(bbox)
 
         bboxes = np.asarray(bboxes).reshape((-1, 4))
 
@@ -123,6 +122,21 @@ class SynthTextGenerator:
 
         return y_outs
 
+    def get_bbox(self, index):
+        label_set = [(self.labels[i], self.filenames[i]) for i in index]
+        labels = [self.parse_bbox(l, f)[..., 0:4] for l, f in label_set]
+
+        # transform label
+        for i, label in enumerate(labels):
+            label_xy = label[..., 0:2]
+            label_wh = label[..., 2:4]
+            label_x1y1 = label_xy - label_wh / 2
+            label_x2y2 = label_xy + label_wh / 2
+            label = np.concatenate((label_x1y1, label_x2y2), axis=-1)
+            labels[i] = label
+
+        return labels
+
     def gen_next_pair(self):
         while True:
             index = np.random.randint(0, len(self.filenames))
@@ -136,5 +150,6 @@ class SynthTextGenerator:
                 'image': img,
                 'scale_1_label': scale_1_label,
                 'scale_2_label': scale_2_label,
-                'scale_3_label': scale_3_label
+                'scale_3_label': scale_3_label,
+                'label_index': index
             })
