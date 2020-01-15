@@ -228,7 +228,7 @@ def plot_bounding_box(img, label, steps, mode):
     fig.canvas.draw()
     image = np.array(fig.canvas.renderer.buffer_rgba())
 
-    plt.savefig("./figure/{}/image_{:d}.png".format(mode, steps / 100 % 30))
+    plt.savefig("./figure/{}/image_{}.png".format(mode, int(steps / 100 % 30)))
     plt.draw()
     plt.pause(0.01)
 
