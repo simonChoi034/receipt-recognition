@@ -274,7 +274,7 @@ class YoloV3(tf.keras.Model):
     def call(self, inputs, training=False, **kwargs):
         masks = yolo_anchor_masks
 
-        scale3, scale2, scale1 = self.darknet(inputs, training=training)
+        scale1, scale2, scale3 = self.darknet(inputs, training=training)
 
         # scale 1 output
         scale_1_detector = self.yolo_output(scale1, self.output_conv[0], len(masks[0]), training=training)

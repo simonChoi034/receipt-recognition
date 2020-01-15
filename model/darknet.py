@@ -52,4 +52,4 @@ class Darknet53(layers.Layer):
         # Scale 1 output for anchor prediction
         scale1 = x
 
-        return scale3, scale2, scale1
+        return scale1, scale2, scale3

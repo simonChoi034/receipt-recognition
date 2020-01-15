@@ -1,6 +1,6 @@
 import argparse
-import os
 import datetime
+import os
 
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
@@ -92,10 +92,13 @@ def train(dataset_train, dataset_val, train_generator, val_generator):
             mAP_50 = mean_average_precision(train_generator.get_bbox(index), bbox.numpy(), 0.5)
             mAP_75 = mean_average_precision(train_generator.get_bbox(index), bbox.numpy(), 0.75)
 
+            plt_image = plot_bounding_box(data['image'].numpy()[0], bbox.numpy()[0], ckpt.step, mode='train')
+
             with train_summary_writer.as_default():
                 tf.summary.scalar('loss', loss, step=int(ckpt.step))
                 tf.summary.scalar('mAP@0.5', mAP_50, step=int(ckpt.step))
                 tf.summary.scalar('mAP@0.75', mAP_75, step=int(ckpt.step))
+                tf.summary.image("Display bounding box", plt_image, step=int(ckpt.step))
 
             # Validation set
             data_val = next(iter(dataset_val))
@@ -104,13 +107,14 @@ def train(dataset_train, dataset_val, train_generator, val_generator):
             mAP_50 = mean_average_precision(val_generator.get_bbox(index), bbox.numpy(), 0.5)
             mAP_75 = mean_average_precision(val_generator.get_bbox(index), bbox.numpy(), 0.75)
 
+            # plot bounding box in image
+            plt_image = plot_bounding_box(data_val['image'].numpy()[0], bbox.numpy()[0], ckpt.step, mode='val')
+
             with val_summary_writer.as_default():
                 tf.summary.scalar('loss', loss, step=int(ckpt.step))
                 tf.summary.scalar('mAP@0.5', mAP_50, step=int(ckpt.step))
                 tf.summary.scalar('mAP@0.75', mAP_75, step=int(ckpt.step))
-
-            # plot bounding box in image
-            plot_bounding_box(data_val['image'].numpy()[0], bbox.numpy()[0], ckpt.step)
+                tf.summary.image("Display bounding box", plt_image, step=int(ckpt.step))
 
             # Save checkpoint
             save_path = manager.save()
@@ -198,7 +202,7 @@ def main(args):
         os.system('sudo shutdown -h now')
 
 
-def plot_bounding_box(img, label, steps):
+def plot_bounding_box(img, label, steps, mode):
     # set random color
     colors = np.random.rand(500)
     cmap = plt.cm.RdYlBu_r
@@ -220,9 +224,15 @@ def plot_bounding_box(img, label, steps):
         rect = mpatches.Rectangle((x, y), w, h, linewidth=2,
                                   edgecolor=c[i], facecolor='none')
         ax.add_patch(rect)
-    plt.savefig("./figure/image_{}.png".format(steps/100 % 30))
+    # convert to numpy array
+    fig.canvas.draw()
+    image = np.array(fig.canvas.renderer.buffer_rgba())
+
+    plt.savefig("./figure/{}/image_{:d}.png".format(mode, steps / 100 % 30))
     plt.draw()
     plt.pause(0.01)
+
+    return image
 
 
 if __name__ == '__main__':
