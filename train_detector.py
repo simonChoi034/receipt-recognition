@@ -53,13 +53,19 @@ def validation(x, y):
 
 
 @tf.function
-def train_one_step(x, y):
+def train_one_step(train_iter):
+    pred_loss = []
     with tf.GradientTape() as tape:
-        pred_s, pred_m, pred_l = model(x, training=True)
-        true_s, true_m, true_l = y
-        regularization_loss = tf.reduce_sum(model.losses)
+        for i in range(4):
+            data = next(train_iter)
+            x, y = data['image'], data['label']
+            pred_s, pred_m, pred_l = model(x, training=True)
+            true_s, true_m, true_l = y
+            regularization_loss = tf.reduce_sum(model.losses)
 
-        pred_loss = yolo_loss(pred_s, pred_m, pred_l, true_s, true_m, true_l)
+            pred_loss.append(yolo_loss(pred_s, pred_m, pred_l, true_s, true_m, true_l))
+
+        pred_loss = tf.reduce_sum(pred_loss)
 
         total_loss = pred_loss + regularization_loss
 
@@ -78,8 +84,9 @@ def train(dataset_train, dataset_val, train_generator, val_generator):
     else:
         print("Initializing from scratch.")
 
-    for data in dataset_train:
-        train_loss = train_one_step(data['image'], data['label'])
+    while True:
+        train_iter = iter(dataset_train)
+        train_loss = train_one_step(train_iter)
 
         ckpt.step.assign_add(1)
 
@@ -87,6 +94,7 @@ def train(dataset_train, dataset_val, train_generator, val_generator):
             tf.print("Steps: ", int(ckpt.step))
             # validation ever 100 epochs
             # Training set
+            data = next(train_iter)
             loss, bbox, _, _, _ = validation(data['image'], data['label'])
             index = data['label_index']
             mAP_50 = mean_average_precision(train_generator.get_bbox(index), bbox.numpy(), 0.5)

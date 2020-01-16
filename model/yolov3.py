@@ -142,8 +142,7 @@ def loss_layer(y_pred, y_true, anchors):
     true_wh = true_box[..., 2:4]
 
     # give higher weights to small boxes
-    #box_loss_scale = 2 - true_wh[..., 0] * true_wh[..., 1]
-    box_loss_scale = 1
+    box_loss_scale = 2 - true_wh[..., 0] * true_wh[..., 1]
 
     # 3. inverting the pred box equations
     grid_size = tf.shape(y_true)[1]
