@@ -84,8 +84,9 @@ def train(dataset_train, dataset_val, train_generator, val_generator):
     else:
         print("Initializing from scratch.")
 
+    train_iter = iter(dataset_train)
+    val_iter = iter(dataset_val)
     while True:
-        train_iter = iter(dataset_train)
         train_loss = train_one_step(train_iter)
 
         ckpt.step.assign_add(1)
@@ -109,7 +110,7 @@ def train(dataset_train, dataset_val, train_generator, val_generator):
                 tf.summary.image("Display bounding box", plt_image, step=int(ckpt.step))
 
             # Validation set
-            data_val = next(iter(dataset_val))
+            data_val = next(val_iter)
             loss, bbox, _, _, _ = validation(data_val['image'], data_val['label'])
             index = data_val['label_index']
             mAP_50 = mean_average_precision(val_generator.get_bbox(index), bbox.numpy(), 0.5)
