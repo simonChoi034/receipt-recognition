@@ -27,7 +27,7 @@ if len(physical_devices) > 0:
     tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
 model = YoloV3(num_class=NUM_CLASS)
-optimizer = tf.keras.optimizers.Adam(lr=LEARNING_RATE)
+optimizer = tf.keras.optimizers.Adam(lr=LEARNING_RATE, clipnorm=0.001)
 ckpt = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optimizer, net=model)
 manager = tf.train.CheckpointManager(ckpt, checkpoint_dir, max_to_keep=5)
 
