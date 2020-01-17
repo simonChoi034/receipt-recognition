@@ -69,8 +69,8 @@ def iou(boxA, boxB):
     return iou
 
 
-def mean_average_precision(y_true, y_pred, threshold):
-    def m_ap_per_batch(label, pred):
+def precision(y_true, y_pred, threshold):
+    def precision_per_batch(label, pred):
         if len(pred) == 0:
             return 0
 
@@ -80,15 +80,37 @@ def mean_average_precision(y_true, y_pred, threshold):
         for p in pred:
             iou_score = max(iou(l, p) for l in label)
             if iou_score > threshold:
+                # pred bbox has correct detection
                 TP += 1
             else:
+                # pred bbox has incorrect detection
                 FP += 1
 
         return float(TP / (TP + FP))
 
-    mAP = np.mean([m_ap_per_batch(label, pred) for label, pred in zip(y_true, y_pred)])
+    return np.mean([precision_per_batch(label, pred) for label, pred in zip(y_true, y_pred)])
 
-    return mAP
+
+def recall(y_true, y_pred, threshold):
+    def recall_per_batch(label, pred):
+        if len(pred) == 0:
+            return 0
+
+        TP = 0
+        FN = 0
+
+        for l in label:
+            iou_score = max(iou(l, p) for p in pred)
+            if iou_score > threshold:
+                # label bbox detected
+                TP += 1
+            else:
+                # label bbox not detected
+                FN += 1
+
+        return float(TP / (TP + FN))
+
+    return np.mean([recall_per_batch(label, pred) for label, pred in zip(y_true, y_pred)])
 
 
 def yolo_loss(pred_sbbox, pred_mbbox, pred_lbbox, true_sbbox, true_mbbox, true_lbbox):

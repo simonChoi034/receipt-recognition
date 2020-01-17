@@ -11,7 +11,7 @@ from dataset.coco_text.detector_dataset_generator import COCOGenerator
 from dataset.dataset import DetectorDataset
 from dataset.receipt.detector_dataset_generator import ReceiptGenerator
 from dataset.synthtext.detector_dataset_generator import SynthTextGenerator
-from model.yolov3 import YoloV3, yolo_loss, yolo_anchors, yolo_anchor_masks, output_bbox, mean_average_precision
+from model.yolov3 import YoloV3, yolo_loss, yolo_anchors, yolo_anchor_masks, output_bbox, precision, recall
 from parameters import dataset_choice, IMAGE_SIZE, BATCH_SIZE, BUFFER_SIZE, PREFETCH_SIZE, NUM_CLASS, LEARNING_RATE
 
 try:
@@ -27,7 +27,7 @@ if len(physical_devices) > 0:
     tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
 model = YoloV3(num_class=NUM_CLASS)
-optimizer = tf.keras.optimizers.Adam(lr=LEARNING_RATE, clipnorm=0.001)
+optimizer = tf.keras.optimizers.Adam(lr=LEARNING_RATE, clipvalue=0.5)
 ckpt = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optimizer, net=model)
 manager = tf.train.CheckpointManager(ckpt, checkpoint_dir, max_to_keep=5)
 
@@ -89,31 +89,39 @@ def train(dataset_train, dataset_val, train_generator, val_generator):
             # Training set
             loss, bbox, _, _, _ = validation(data['image'], data['label'])
             index = data['label_index']
-            mAP_50 = mean_average_precision(train_generator.get_bbox(index), bbox.numpy(), 0.5)
-            mAP_75 = mean_average_precision(train_generator.get_bbox(index), bbox.numpy(), 0.75)
+            precision_50 = precision(train_generator.get_bbox(index), bbox.numpy(), 0.5)
+            precision_75 = precision(train_generator.get_bbox(index), bbox.numpy(), 0.75)
+            recall_50 = recall(train_generator.get_bbox(index), bbox.numpy(), 0.5)
+            recall_75 = recall(train_generator.get_bbox(index), bbox.numpy(), 0.75)
 
             plt_image = plot_bounding_box(data['image'].numpy()[0], bbox.numpy()[0], ckpt.step, mode='train')
 
             with train_summary_writer.as_default():
                 tf.summary.scalar('loss', loss, step=int(ckpt.step))
-                tf.summary.scalar('mAP@0.5', mAP_50, step=int(ckpt.step))
-                tf.summary.scalar('mAP@0.75', mAP_75, step=int(ckpt.step))
+                tf.summary.scalar('precision@0.5', precision_50, step=int(ckpt.step))
+                tf.summary.scalar('precision@0.75', precision_75, step=int(ckpt.step))
+                tf.summary.scalar('recall@0.5', recall_50, step=int(ckpt.step))
+                tf.summary.scalar('recall@0.75', recall_75, step=int(ckpt.step))
                 tf.summary.image("Display bounding box", plt_image, step=int(ckpt.step))
 
             # Validation set
             data_val = next(iter(dataset_val))
             loss, bbox, _, _, _ = validation(data_val['image'], data_val['label'])
             index = data_val['label_index']
-            mAP_50 = mean_average_precision(val_generator.get_bbox(index), bbox.numpy(), 0.5)
-            mAP_75 = mean_average_precision(val_generator.get_bbox(index), bbox.numpy(), 0.75)
+            precision_50 = precision(val_generator.get_bbox(index), bbox.numpy(), 0.5)
+            precision_75 = precision(val_generator.get_bbox(index), bbox.numpy(), 0.75)
+            recall_50 = recall(val_generator.get_bbox(index), bbox.numpy(), 0.5)
+            recall_75 = recall(val_generator.get_bbox(index), bbox.numpy(), 0.75)
 
             # plot bounding box in image
             plt_image = plot_bounding_box(data_val['image'].numpy()[0], bbox.numpy()[0], ckpt.step, mode='val')
 
             with val_summary_writer.as_default():
                 tf.summary.scalar('loss', loss, step=int(ckpt.step))
-                tf.summary.scalar('mAP@0.5', mAP_50, step=int(ckpt.step))
-                tf.summary.scalar('mAP@0.75', mAP_75, step=int(ckpt.step))
+                tf.summary.scalar('precision@0.5', precision_50, step=int(ckpt.step))
+                tf.summary.scalar('precision@0.75', precision_75, step=int(ckpt.step))
+                tf.summary.scalar('recall@0.5', recall_50, step=int(ckpt.step))
+                tf.summary.scalar('recall@0.75', recall_75, step=int(ckpt.step))
                 tf.summary.image("Display bounding box", plt_image, step=int(ckpt.step))
 
             # Save checkpoint
