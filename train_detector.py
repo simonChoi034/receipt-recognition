@@ -11,7 +11,7 @@ from dataset.coco_text.detector_dataset_generator import COCOGenerator
 from dataset.dataset import DetectorDataset
 from dataset.receipt.detector_dataset_generator import ReceiptGenerator
 from dataset.synthtext.detector_dataset_generator import SynthTextGenerator
-from model.yolov3 import YoloV3, yolo_loss, yolo_anchors, yolo_anchor_masks, output_bbox, mean_average_precision
+from model.yolov3 import YoloV3, yolo_loss, yolo_anchors, yolo_anchor_masks, output_bbox, precision, recall
 from parameters import dataset_choice, IMAGE_SIZE, BATCH_SIZE, BUFFER_SIZE, PREFETCH_SIZE, NUM_CLASS, LEARNING_RATE
 
 try:
@@ -27,7 +27,7 @@ if len(physical_devices) > 0:
     tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
 model = YoloV3(num_class=NUM_CLASS)
-optimizer = tf.keras.optimizers.Adam(lr=LEARNING_RATE, clipnorm=0.001)
+optimizer = tf.keras.optimizers.Adam(lr=LEARNING_RATE, clipvalue=0.5)
 ckpt = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optimizer, net=model)
 manager = tf.train.CheckpointManager(ckpt, checkpoint_dir, max_to_keep=5)
 
@@ -44,12 +44,12 @@ def validation(x, y):
     # calculate loss from validation dataset
     pred_s, pred_m, pred_l = model(x)
     true_s, true_m, true_l = y
-    pred_loss = yolo_loss(pred_s, pred_m, pred_l, true_s, true_m, true_l)
+    pred_losses = yolo_loss(pred_s, pred_m, pred_l, true_s, true_m, true_l)
 
     # get bounding box
     bbox, objectiveness, class_probs, pred_box = output_bbox((pred_s, pred_m, pred_l))
 
-    return pred_loss, bbox, objectiveness, class_probs, pred_box
+    return pred_losses, bbox, objectiveness, class_probs, pred_box
 
 
 @tf.function
@@ -59,15 +59,15 @@ def train_one_step(x, y):
         true_s, true_m, true_l = y
         regularization_loss = tf.reduce_sum(model.losses)
 
-        pred_loss = yolo_loss(pred_s, pred_m, pred_l, true_s, true_m, true_l)
+        pred_losses = yolo_loss(pred_s, pred_m, pred_l, true_s, true_m, true_l)
 
-        total_loss = pred_loss + regularization_loss
+        total_loss = tf.reduce_sum(pred_losses) + regularization_loss
 
     grads = tape.gradient(total_loss, model.trainable_variables)
     optimizer.apply_gradients(
         zip(grads, model.trainable_variables))
 
-    return pred_loss
+    return tf.reduce_sum(pred_losses)
 
 
 def train(dataset_train, dataset_val, train_generator, val_generator):
@@ -87,39 +87,58 @@ def train(dataset_train, dataset_val, train_generator, val_generator):
             tf.print("Steps: ", int(ckpt.step))
             # validation ever 100 epochs
             # Training set
-            loss, bbox, _, _, _ = validation(data['image'], data['label'])
-            index = data['label_index']
-            mAP_50 = mean_average_precision(train_generator.get_bbox(index), bbox.numpy(), 0.5)
-            mAP_75 = mean_average_precision(train_generator.get_bbox(index), bbox.numpy(), 0.75)
+            losses, bbox, _, _, _ = validation(data['image'], data['label'])
+            total_loss = tf.reduce_sum(losses)
 
+            index = data['label_index']
+            precision_50 = precision(train_generator.get_bbox(index), bbox.numpy(), 0.5)
+            precision_75 = precision(train_generator.get_bbox(index), bbox.numpy(), 0.75)
+            recall_50 = recall(train_generator.get_bbox(index), bbox.numpy(), 0.5)
+            recall_75 = recall(train_generator.get_bbox(index), bbox.numpy(), 0.75)
+
+            # plot bounding box in image
             plt_image = plot_bounding_box(data['image'].numpy()[0], bbox.numpy()[0], ckpt.step, mode='train')
 
             with train_summary_writer.as_default():
-                tf.summary.scalar('loss', loss, step=int(ckpt.step))
-                tf.summary.scalar('mAP@0.5', mAP_50, step=int(ckpt.step))
-                tf.summary.scalar('mAP@0.75', mAP_75, step=int(ckpt.step))
+                tf.summary.scalar('Total loss', total_loss, step=int(ckpt.step))
+                tf.summary.scalar('Scale 1 detector loss', losses[0], step=int(ckpt.step))
+                tf.summary.scalar('Scale 2 detector loss', losses[1], step=int(ckpt.step))
+                tf.summary.scalar('Scale 3 detector loss', losses[2], step=int(ckpt.step))
+                tf.summary.scalar('precision@0.5', precision_50, step=int(ckpt.step))
+                tf.summary.scalar('precision@0.75', precision_75, step=int(ckpt.step))
+                tf.summary.scalar('recall@0.5', recall_50, step=int(ckpt.step))
+                tf.summary.scalar('recall@0.75', recall_75, step=int(ckpt.step))
                 tf.summary.image("Display bounding box", plt_image, step=int(ckpt.step))
 
             # Validation set
             data_val = next(iter(dataset_val))
-            loss, bbox, _, _, _ = validation(data_val['image'], data_val['label'])
+            losses, bbox, _, _, _ = validation(data_val['image'], data_val['label'])
+            total_loss = tf.reduce_sum(losses)
+
             index = data_val['label_index']
-            mAP_50 = mean_average_precision(val_generator.get_bbox(index), bbox.numpy(), 0.5)
-            mAP_75 = mean_average_precision(val_generator.get_bbox(index), bbox.numpy(), 0.75)
+            precision_50 = precision(val_generator.get_bbox(index), bbox.numpy(), 0.5)
+            precision_75 = precision(val_generator.get_bbox(index), bbox.numpy(), 0.75)
+            recall_50 = recall(val_generator.get_bbox(index), bbox.numpy(), 0.5)
+            recall_75 = recall(val_generator.get_bbox(index), bbox.numpy(), 0.75)
 
             # plot bounding box in image
             plt_image = plot_bounding_box(data_val['image'].numpy()[0], bbox.numpy()[0], ckpt.step, mode='val')
 
             with val_summary_writer.as_default():
-                tf.summary.scalar('loss', loss, step=int(ckpt.step))
-                tf.summary.scalar('mAP@0.5', mAP_50, step=int(ckpt.step))
-                tf.summary.scalar('mAP@0.75', mAP_75, step=int(ckpt.step))
+                tf.summary.scalar('Total loss', total_loss, step=int(ckpt.step))
+                tf.summary.scalar('Scale 1 detector loss', losses[0], step=int(ckpt.step))
+                tf.summary.scalar('Scale 2 detector loss', losses[1], step=int(ckpt.step))
+                tf.summary.scalar('Scale 3 detector loss', losses[2], step=int(ckpt.step))
+                tf.summary.scalar('precision@0.5', precision_50, step=int(ckpt.step))
+                tf.summary.scalar('precision@0.75', precision_75, step=int(ckpt.step))
+                tf.summary.scalar('recall@0.5', recall_50, step=int(ckpt.step))
+                tf.summary.scalar('recall@0.75', recall_75, step=int(ckpt.step))
                 tf.summary.image("Display bounding box", plt_image, step=int(ckpt.step))
 
             # Save checkpoint
             save_path = manager.save()
             print("Saved checkpoint for step {}: {}".format(int(ckpt.step), save_path))
-            print("validation loss {:1.2f}".format(loss.numpy()))
+            print("validation loss {:1.2f}".format(total_loss.numpy()))
 
         if train_loss <= 5.0:
             print("Early stopping")
