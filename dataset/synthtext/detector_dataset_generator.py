@@ -45,9 +45,10 @@ class SynthTextGenerator:
             w, h = x_max - x_min, y_max - y_min
             x_cen, y_cen = x_min + w / 2, y_min + h / 2
 
-            if 0 < x_min < width and 0 < x_max < width and 0 < y_min < height and 0 < y_max < height:
-                bbox = [x_cen, y_cen, w, h]
-                bboxes.append(bbox)
+            x_cen = max(min(width-0.01, x_cen), 0)
+            y_cen = max(min(height-0.01, y_cen), 0)
+            bbox = [x_cen, y_cen, w, h]
+            bboxes.append(bbox)
 
         bboxes = np.asarray(bboxes).reshape((-1, 4))
 
