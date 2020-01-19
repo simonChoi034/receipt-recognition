@@ -92,7 +92,7 @@ def train(dataset_train, dataset_val, train_generator, val_generator):
             print("Error. Restart training from checkpoint again")
             train(dataset_train, dataset_val, train_generator, val_generator)
 
-        if int(ckpt.step) % 100 == 0 or True:
+        if int(ckpt.step) % 100 == 0:
             tf.print("Steps: ", int(ckpt.step))
             # validation ever 100 epochs
             # Training set
