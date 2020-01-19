@@ -69,15 +69,16 @@ def iou(boxA, boxB):
     return iou
 
 
-def precision(y_true, y_pred, threshold):
-    def precision_per_batch(label, pred):
-        if len(pred) == 0:
+def precision(y_true, y_pred, valid_detections, threshold):
+    def precision_per_batch(label, pred, valid_detection):
+        if valid_detection == 0:
             return 0
 
         TP = 0
         FP = 0
 
-        for p in pred:
+        for i in range(valid_detection):
+            p = pred[i]
             iou_score = max(iou(l, p) for l in label)
             if iou_score > threshold:
                 # pred bbox has correct detection
@@ -88,19 +89,20 @@ def precision(y_true, y_pred, threshold):
 
         return float(TP / (TP + FP))
 
-    return np.mean([precision_per_batch(label, pred) for label, pred in zip(y_true, y_pred)])
+    return np.mean([precision_per_batch(label, pred, valid_detection) for label, pred, valid_detection in
+                    zip(y_true, y_pred, valid_detections)])
 
 
-def recall(y_true, y_pred, threshold):
-    def recall_per_batch(label, pred):
-        if len(pred) == 0:
+def recall(y_true, y_pred, valid_detections, threshold):
+    def recall_per_batch(label, pred, valid_detection):
+        if valid_detection == 0:
             return 0
 
         TP = 0
         FN = 0
 
         for l in label:
-            iou_score = max(iou(l, p) for p in pred)
+            iou_score = max(iou(l, pred[i]) for i in range(valid_detection))
             if iou_score > threshold:
                 # label bbox detected
                 TP += 1
@@ -110,7 +112,8 @@ def recall(y_true, y_pred, threshold):
 
         return float(TP / (TP + FN))
 
-    return np.mean([recall_per_batch(label, pred) for label, pred in zip(y_true, y_pred)])
+    return np.mean([recall_per_batch(label, pred, valid_detection) for label, pred, valid_detection in
+                    zip(y_true, y_pred, valid_detections)])
 
 
 def yolo_loss(pred_sbbox, pred_mbbox, pred_lbbox, true_sbbox, true_mbbox, true_lbbox):
@@ -142,9 +145,9 @@ def broadcast_iou(box_1, box_2):
                        tf.maximum(box_1[..., 1], box_2[..., 1]), 0)
     int_area = int_w * int_h
     box_1_area = (box_1[..., 2] - box_1[..., 0]) * \
-        (box_1[..., 3] - box_1[..., 1])
+                 (box_1[..., 3] - box_1[..., 1])
     box_2_area = (box_2[..., 2] - box_2[..., 0]) * \
-        (box_2[..., 3] - box_2[..., 1])
+                 (box_2[..., 3] - box_2[..., 1])
     return int_area / (box_1_area + box_2_area - int_area)
 
 

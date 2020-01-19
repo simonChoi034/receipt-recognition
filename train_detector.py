@@ -47,9 +47,9 @@ def validation(x, y):
     pred_loss = yolo_loss(pred_s, pred_m, pred_l, true_s, true_m, true_l)
 
     # get bounding box
-    bbox, objectiveness, class_probs, pred_box = output_bbox((pred_s, pred_m, pred_l))
+    bbox, objectiveness, class_probs, valid_detections = output_bbox((pred_s, pred_m, pred_l))
 
-    return pred_loss, bbox, objectiveness, class_probs, pred_box
+    return pred_loss, bbox, objectiveness, class_probs, valid_detections
 
 
 @tf.function
@@ -96,12 +96,17 @@ def train(dataset_train, dataset_val, train_generator, val_generator):
             tf.print("Steps: ", int(ckpt.step))
             # validation ever 100 epochs
             # Training set
-            loss, bbox, _, _, _ = validation(data['image'], data['label'])
+            loss, bbox, _, _, valid_detections = validation(data['image'], data['label'])
+
             index = data['label_index']
-            precision_50 = precision(train_generator.get_bbox(index), bbox.numpy(), 0.5)
-            precision_75 = precision(train_generator.get_bbox(index), bbox.numpy(), 0.75)
-            recall_50 = recall(train_generator.get_bbox(index), bbox.numpy(), 0.5)
-            recall_75 = recall(train_generator.get_bbox(index), bbox.numpy(), 0.75)
+            precision_50 = precision(train_generator.get_bbox(index), bbox.numpy(),
+                                     valid_detections=valid_detections.numpy(), threshold=0.5)
+            precision_75 = precision(train_generator.get_bbox(index), bbox.numpy(),
+                                     valid_detections=valid_detections.numpy(), threshold=0.75)
+            recall_50 = recall(train_generator.get_bbox(index), bbox.numpy(), valid_detections=valid_detections.numpy(),
+                               threshold=0.5)
+            recall_75 = recall(train_generator.get_bbox(index), bbox.numpy(), valid_detections=valid_detections.numpy(),
+                               threshold=0.75)
 
             plt_image = plot_bounding_box(data['image'].numpy()[0], bbox.numpy()[0], ckpt.step, mode='train')
 
@@ -115,12 +120,17 @@ def train(dataset_train, dataset_val, train_generator, val_generator):
 
             # Validation set
             data_val = next(iter(dataset_val))
-            loss, bbox, _, _, _ = validation(data_val['image'], data_val['label'])
+            loss, bbox, _, _, valid_detections = validation(data_val['image'], data_val['label'])
+
             index = data_val['label_index']
-            precision_50 = precision(val_generator.get_bbox(index), bbox.numpy(), 0.5)
-            precision_75 = precision(val_generator.get_bbox(index), bbox.numpy(), 0.75)
-            recall_50 = recall(val_generator.get_bbox(index), bbox.numpy(), 0.5)
-            recall_75 = recall(val_generator.get_bbox(index), bbox.numpy(), 0.75)
+            precision_50 = precision(val_generator.get_bbox(index), bbox.numpy(),
+                                     valid_detections=valid_detections.numpy(), threshold=0.5)
+            precision_75 = precision(val_generator.get_bbox(index), bbox.numpy(),
+                                     valid_detections=valid_detections.numpy(), threshold=0.75)
+            recall_50 = recall(val_generator.get_bbox(index), bbox.numpy(), valid_detections=valid_detections.numpy(),
+                               threshold=0.5)
+            recall_75 = recall(val_generator.get_bbox(index), bbox.numpy(), valid_detections=valid_detections.numpy(),
+                               threshold=0.75)
 
             # plot bounding box in image
             plt_image = plot_bounding_box(data_val['image'].numpy()[0], bbox.numpy()[0], ckpt.step, mode='val')
