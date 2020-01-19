@@ -252,10 +252,11 @@ def output_bbox(input):
     class_probs = tf.concat(t, axis=1)
 
     scores = confidence * class_probs
+    scores = tf.reshape(scores[..., 1], (tf.shape(scores)[0], -1, 1))
+
     boxes, scores, classes, valid_detections = tf.image.combined_non_max_suppression(
         boxes=tf.reshape(bbox, (tf.shape(bbox)[0], -1, 1, 4)),
-        scores=tf.reshape(
-            scores, (tf.shape(scores)[0], -1, tf.shape(scores)[-1])),
+        scores=scores,
         max_output_size_per_class=100,
         max_total_size=100,
         iou_threshold=yolo_iou_threshold,

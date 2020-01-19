@@ -83,7 +83,16 @@ def train(dataset_train, dataset_val, train_generator, val_generator):
 
         ckpt.step.assign_add(1)
 
-        if int(ckpt.step) % 100 == 0:
+        if 0 < train_loss <= 5.0:
+            print("Early stopping")
+            print("Final training loss {:1.2f}".format(train_loss))
+            return
+
+        if train_loss < 0:
+            print("Error. Restart training from checkpoint again")
+            train(dataset_train, dataset_val, train_generator, val_generator)
+
+        if int(ckpt.step) % 100 == 0 or True:
             tf.print("Steps: ", int(ckpt.step))
             # validation ever 100 epochs
             # Training set
@@ -128,11 +137,6 @@ def train(dataset_train, dataset_val, train_generator, val_generator):
             save_path = manager.save()
             print("Saved checkpoint for step {}: {}".format(int(ckpt.step), save_path))
             print("validation loss {:1.2f}".format(loss.numpy()))
-
-        if train_loss <= 5.0:
-            print("Early stopping")
-            print("Final training loss {:1.2f}".format(train_loss))
-            return
 
 
 def main(args):
