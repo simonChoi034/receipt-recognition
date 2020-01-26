@@ -70,7 +70,7 @@ def train_one_step(x, y):
     return pred_loss
 
 
-def train(dataset_train, dataset_val, train_generator, val_generator):
+def train(dataset_train, dataset_val, train_generator, val_generator, batch_size):
     # restore checkpoint
     ckpt.restore(manager.latest_checkpoint)
     if manager.latest_checkpoint:
@@ -83,14 +83,14 @@ def train(dataset_train, dataset_val, train_generator, val_generator):
 
         ckpt.step.assign_add(1)
 
-        if 0 < train_loss <= 5.0:
+        if 0 < train_loss / batch_size <= 5.0:
             print("Early stopping")
-            print("Final training loss {:1.2f}".format(train_loss))
+            print("Final training loss {:1.2f}".format(train_loss / batch_size))
             return
 
         if train_loss < 0:
             print("Error. Restart training from checkpoint again")
-            train(dataset_train, dataset_val, train_generator, val_generator)
+            train(dataset_train, dataset_val, train_generator, val_generator, batch_size)
 
         if int(ckpt.step) % 100 == 0:
             tf.print("Steps: ", int(ckpt.step))
@@ -112,6 +112,7 @@ def train(dataset_train, dataset_val, train_generator, val_generator):
 
             with train_summary_writer.as_default():
                 tf.summary.scalar('loss', loss, step=int(ckpt.step))
+                tf.summary.scalar('mean loss', loss / batch_size, step=int(ckpt.step))
                 tf.summary.scalar('precision@0.5', precision_50, step=int(ckpt.step))
                 tf.summary.scalar('precision@0.75', precision_75, step=int(ckpt.step))
                 tf.summary.scalar('recall@0.5', recall_50, step=int(ckpt.step))
@@ -137,6 +138,7 @@ def train(dataset_train, dataset_val, train_generator, val_generator):
 
             with val_summary_writer.as_default():
                 tf.summary.scalar('loss', loss, step=int(ckpt.step))
+                tf.summary.scalar('mean loss', loss / batch_size, step=int(ckpt.step))
                 tf.summary.scalar('precision@0.5', precision_50, step=int(ckpt.step))
                 tf.summary.scalar('precision@0.75', precision_75, step=int(ckpt.step))
                 tf.summary.scalar('recall@0.5', recall_50, step=int(ckpt.step))
@@ -217,7 +219,7 @@ def main(args):
     dataset_val = dataset_val_generator.create_dataset()
 
     # train network
-    train(dataset_train, dataset_val, train_generator, val_generator)
+    train(dataset_train, dataset_val, train_generator, val_generator, batch_size=args.batch_size)
 
     # stop vm after training finished
     if args.s:
