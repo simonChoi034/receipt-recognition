@@ -92,9 +92,9 @@ def train(dataset_train, dataset_val, train_generator, val_generator, batch_size
             print("Error. Restart training from checkpoint again")
             train(dataset_train, dataset_val, train_generator, val_generator, batch_size)
 
-        if int(ckpt.step) % 100 == 0:
+        if int(ckpt.step) % 1000 == 0:
             tf.print("Steps: ", int(ckpt.step))
-            # validation ever 100 epochs
+            # validation ever 1000 epochs
             # Training set
             loss, bbox, _, _, valid_detections = validation(data['image'], data['label'])
 
