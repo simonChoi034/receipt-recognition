@@ -11,15 +11,24 @@ from dataset.coco_text.detector_dataset_generator import COCOGenerator
 from dataset.dataset import DetectorDataset
 from dataset.receipt.detector_dataset_generator import ReceiptGenerator
 from dataset.synthtext.detector_dataset_generator import SynthTextGenerator
-from model.yolov3 import YoloV3, yolo_loss, yolo_anchors, yolo_anchor_masks, output_bbox, precision, recall
-from parameters import dataset_choice, IMAGE_SIZE, BATCH_SIZE, BUFFER_SIZE, PREFETCH_SIZE, NUM_CLASS, LEARNING_RATE
+from model.yolov3 import YoloV3, yolo_loss, yolo_anchors, yolo_anchor_masks, output_bbox, precision, recall, mAP
+from parameters import dataset_choice, IMAGE_SIZE, BATCH_SIZE, BUFFER_SIZE, PREFETCH_SIZE, NUM_CLASS, LR_INIT, LR_END, \
+    WARMUP_EPOCHS, TRAIN_EPOCHS
 
 try:
     tf.enable_eager_execution()
 except:
     pass
 
-checkpoint_dir = './checkpoints/yolov3_train.tf'
+# runtime config for training
+train_config = {
+    'batch_size': BATCH_SIZE,
+    'dataset_size': 1,
+    'warmup_steps': WARMUP_EPOCHS,
+    'total_steps': TRAIN_EPOCHS
+}
+
+checkpoint_dir = './checkpoints/yolov3_2.0_train.tf'
 
 physical_devices = tf.config.experimental.list_physical_devices('GPU')
 print("Num GPUs Available: ", len(physical_devices))
@@ -27,7 +36,7 @@ if len(physical_devices) > 0:
     tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
 model = YoloV3(num_class=NUM_CLASS)
-optimizer = tf.keras.optimizers.Adam(lr=LEARNING_RATE, clipvalue=0.5)
+optimizer = tf.keras.optimizers.Adam(lr=LR_INIT, clipvalue=0.5)
 ckpt = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optimizer, net=model)
 manager = tf.train.CheckpointManager(ckpt, checkpoint_dir, max_to_keep=5)
 
@@ -47,9 +56,9 @@ def validation(x, y):
     pred_loss = yolo_loss(pred_s, pred_m, pred_l, true_s, true_m, true_l)
 
     # get bounding box
-    bbox, objectiveness, class_probs, valid_detections = output_bbox((pred_s, pred_m, pred_l))
+    bboxes, scores, classes, valid_detections = output_bbox((pred_s, pred_m, pred_l))
 
-    return pred_loss, bbox, objectiveness, class_probs, valid_detections
+    return pred_loss, bboxes, scores, classes, valid_detections
 
 
 @tf.function
@@ -67,10 +76,65 @@ def train_one_step(x, y):
     optimizer.apply_gradients(
         zip(grads, model.trainable_variables))
 
+    # adaptive learning rate for each step
+    update_learning_rate()
+
     return pred_loss
 
 
-def train(dataset_train, dataset_val, train_generator, val_generator, batch_size):
+def update_learning_rate():
+    global_steps = int(ckpt.step)
+    warmup_steps = train_config['warmup_steps']
+    total_steps = train_config['total_steps']
+    if global_steps < warmup_steps:
+        lr = global_steps / warmup_steps * LR_INIT
+    else:
+        lr = LR_END + 0.5 * (LR_INIT - LR_END) * (
+            (1 + tf.cos((global_steps - warmup_steps) / (total_steps - warmup_steps) * np.pi))
+        )
+
+    optimizer.lr.assign(float(lr))
+
+
+def metrics_logging(writer, data, generator):
+    loss, bboxes, scores, classes, valid_detections = validation(data['image'], data['label'])
+
+    index = data['label_index']
+    gt_box = generator.get_bbox(index)
+
+    precision_50 = precision(gt_box, bboxes.numpy(),
+                             valid_detections=valid_detections.numpy(), threshold=0.5)
+    precision_75 = precision(gt_box, bboxes.numpy(),
+                             valid_detections=valid_detections.numpy(), threshold=0.75)
+    recall_50 = recall(gt_box, bboxes.numpy(), valid_detections=valid_detections.numpy(),
+                       threshold=0.5)
+    recall_75 = recall(gt_box, bboxes.numpy(), valid_detections=valid_detections.numpy(),
+                       threshold=0.75)
+    mAP_50 = mAP(gt_box, bboxes.numpy(), scores=scores.numpy(), valid_detections=valid_detections.numpy(),
+                 threshold=0.5)
+    mAP_75 = mAP(gt_box, bboxes.numpy(), scores=scores.numpy(), valid_detections=valid_detections.numpy(),
+                 threshold=0.75)
+
+    print(mAP_50)
+
+    plt_image = plot_bounding_box(data['image'], bboxes, scores, valid_detections, ckpt.step, mode='train')
+
+    with writer.as_default():
+        tf.summary.scalar("lr", optimizer.lr, step=int(ckpt.step))
+        tf.summary.scalar('loss', loss, step=int(ckpt.step))
+        tf.summary.scalar('mean loss', loss / train_config['batch_size'], step=int(ckpt.step))
+        tf.summary.scalar('precision@0.5', precision_50, step=int(ckpt.step))
+        tf.summary.scalar('precision@0.75', precision_75, step=int(ckpt.step))
+        tf.summary.scalar('recall@0.5', recall_50, step=int(ckpt.step))
+        tf.summary.scalar('recall@0.75', recall_75, step=int(ckpt.step))
+        tf.summary.scalar('mAP@0.5', mAP_50, step=int(ckpt.step))
+        tf.summary.scalar('mAP@0.75', mAP_75, step=int(ckpt.step))
+        tf.summary.image("Display bounding box", plt_image, step=int(ckpt.step))
+
+    return loss
+
+
+def train(dataset_train, dataset_val, train_generator, val_generator):
     # restore checkpoint
     ckpt.restore(manager.latest_checkpoint)
     if manager.latest_checkpoint:
@@ -83,72 +147,32 @@ def train(dataset_train, dataset_val, train_generator, val_generator, batch_size
 
         ckpt.step.assign_add(1)
 
-        if 0 < train_loss / batch_size <= 5.0:
+        print(optimizer.lr)
+
+        if 0 < train_loss / train_config['batch_size'] <= 5.0 or int(ckpt.step) >= train_config['total_steps']:
             print("Early stopping")
-            print("Final training loss {:1.2f}".format(train_loss / batch_size))
+            print("Final training loss {:1.2f}".format(train_loss / train_config['batch_size']))
             return
 
         if train_loss < 0:
             print("Error. Restart training from checkpoint again")
-            train(dataset_train, dataset_val, train_generator, val_generator, batch_size)
+            train(dataset_train, dataset_val, train_generator, val_generator)
 
         if int(ckpt.step) % 1000 == 0:
             tf.print("Steps: ", int(ckpt.step))
             # validation ever 1000 epochs
             # Training set
-            loss, bbox, _, _, valid_detections = validation(data['image'], data['label'])
-
-            index = data['label_index']
-            precision_50 = precision(train_generator.get_bbox(index), bbox.numpy(),
-                                     valid_detections=valid_detections.numpy(), threshold=0.5)
-            precision_75 = precision(train_generator.get_bbox(index), bbox.numpy(),
-                                     valid_detections=valid_detections.numpy(), threshold=0.75)
-            recall_50 = recall(train_generator.get_bbox(index), bbox.numpy(), valid_detections=valid_detections.numpy(),
-                               threshold=0.5)
-            recall_75 = recall(train_generator.get_bbox(index), bbox.numpy(), valid_detections=valid_detections.numpy(),
-                               threshold=0.75)
-
-            plt_image = plot_bounding_box(data['image'].numpy()[0], bbox.numpy()[0], ckpt.step, mode='train')
-
-            with train_summary_writer.as_default():
-                tf.summary.scalar('loss', loss, step=int(ckpt.step))
-                tf.summary.scalar('mean loss', loss / batch_size, step=int(ckpt.step))
-                tf.summary.scalar('precision@0.5', precision_50, step=int(ckpt.step))
-                tf.summary.scalar('precision@0.75', precision_75, step=int(ckpt.step))
-                tf.summary.scalar('recall@0.5', recall_50, step=int(ckpt.step))
-                tf.summary.scalar('recall@0.75', recall_75, step=int(ckpt.step))
-                tf.summary.image("Display bounding box", plt_image, step=int(ckpt.step))
+            train_loss = metrics_logging(writer=train_summary_writer, data=data, generator=train_generator)
 
             # Validation set
             data_val = next(iter(dataset_val))
-            loss, bbox, _, _, valid_detections = validation(data_val['image'], data_val['label'])
-
-            index = data_val['label_index']
-            precision_50 = precision(val_generator.get_bbox(index), bbox.numpy(),
-                                     valid_detections=valid_detections.numpy(), threshold=0.5)
-            precision_75 = precision(val_generator.get_bbox(index), bbox.numpy(),
-                                     valid_detections=valid_detections.numpy(), threshold=0.75)
-            recall_50 = recall(val_generator.get_bbox(index), bbox.numpy(), valid_detections=valid_detections.numpy(),
-                               threshold=0.5)
-            recall_75 = recall(val_generator.get_bbox(index), bbox.numpy(), valid_detections=valid_detections.numpy(),
-                               threshold=0.75)
-
-            # plot bounding box in image
-            plt_image = plot_bounding_box(data_val['image'].numpy()[0], bbox.numpy()[0], ckpt.step, mode='val')
-
-            with val_summary_writer.as_default():
-                tf.summary.scalar('loss', loss, step=int(ckpt.step))
-                tf.summary.scalar('mean loss', loss / batch_size, step=int(ckpt.step))
-                tf.summary.scalar('precision@0.5', precision_50, step=int(ckpt.step))
-                tf.summary.scalar('precision@0.75', precision_75, step=int(ckpt.step))
-                tf.summary.scalar('recall@0.5', recall_50, step=int(ckpt.step))
-                tf.summary.scalar('recall@0.75', recall_75, step=int(ckpt.step))
-                tf.summary.image("Display bounding box", plt_image, step=int(ckpt.step))
+            val_loss = metrics_logging(writer=val_summary_writer, data=data_val, generator=val_generator)
 
             # Save checkpoint
             save_path = manager.save()
             print("Saved checkpoint for step {}: {}".format(int(ckpt.step), save_path))
-            print("validation loss {:1.2f}".format(loss.numpy()))
+            print("training loss {:1.2f}".format(train_loss.numpy()))
+            print("validation loss {:1.2f}".format(val_loss.numpy()))
 
 
 def main(args):
@@ -218,15 +242,25 @@ def main(args):
     dataset_train = dataset_train_generator.create_dataset()
     dataset_val = dataset_val_generator.create_dataset()
 
+    # setup runtime train config
+    train_config['batch_size'] = args.batch_size
+    train_config['dataset_size'] = len(train_generator.filenames)
+    train_config['warmup_steps'] = WARMUP_EPOCHS * train_config['dataset_size'] // args.batch_size
+    train_config['total_steps'] = TRAIN_EPOCHS * train_config['dataset_size'] // args.batch_size
+
     # train network
-    train(dataset_train, dataset_val, train_generator, val_generator, batch_size=args.batch_size)
+    train(dataset_train, dataset_val, train_generator, val_generator)
 
     # stop vm after training finished
     if args.s:
         os.system('sudo shutdown -h now')
 
 
-def plot_bounding_box(img, label, steps, mode):
+def plot_bounding_box(imgs, labels, scores, valid_detections, steps, mode):
+    img = imgs.numpy()[0]
+    label = labels.numpy()[0][:valid_detections.numpy()[0]]
+    score = scores.numpy()[0][:valid_detections.numpy()[0]]
+
     # set random color
     colors = np.random.rand(500)
     cmap = plt.cm.RdYlBu_r
@@ -239,7 +273,7 @@ def plot_bounding_box(img, label, steps, mode):
     # plot graph
     fig, ax = plt.subplots(1)
     ax.imshow(img)
-    for i, bbox in enumerate(label):
+    for i, (bbox, score) in enumerate(zip(label, score)):
         x1, y1, x2, y2 = bbox
         w = abs(x2 - x1) * img_w
         h = abs(y2 - y1) * img_h
@@ -247,6 +281,7 @@ def plot_bounding_box(img, label, steps, mode):
 
         rect = mpatches.Rectangle((x, y), w, h, linewidth=2,
                                   edgecolor=c[i], facecolor='none')
+        ax.annotate(score, (x, y - 4), color=c[i])
         ax.add_patch(rect)
 
     img_file = "./figure/{}/image_{}.png".format(mode, int(steps / 100 % 30))

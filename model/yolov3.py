@@ -8,7 +8,7 @@ from tensorflow.keras.losses import (
 
 from parameters import IMAGE_SIZE, NUM_CLASS, yolo_score_threshold, yolo_iou_threshold
 from .darknet import Darknet53
-from .layers import MyConv2D, ResidualBlock
+from .layers import MyConv2D
 
 yolo_anchors = np.array([[18, 19],
                          [34, 19],
@@ -114,6 +114,58 @@ def recall(y_true, y_pred, valid_detections, threshold):
 
     return np.mean([recall_per_batch(label, pred, valid_detection) for label, pred, valid_detection in
                     zip(y_true, y_pred, valid_detections)])
+
+
+def mAP(y_true, y_pred, scores, valid_detections, threshold):
+    def mAP_per_batch(label, pred, score, valid_detection):
+        if valid_detection == 0:
+            return 0
+
+        pred = np.asarray(pred[:valid_detection])
+        score = np.asarray(score[:valid_detection])
+
+        # sort predictions by score in descending order
+        sorted_index = np.argsort(score)[::-1]
+        pred = pred[sorted_index]
+
+        label = np.asarray(label)
+        GT_class = len(label)
+
+        recalls = []
+        precisions = []
+        ap_r = [0.0 for _ in range(11)]
+        TP = FP = 0
+
+        for p in pred:
+            if len(label > 0):
+                iou_scores = [iou(l, p) for l in label]
+                iou_score, index = np.max(iou_scores), np.argmax(iou_scores)
+                if iou_score > threshold:
+                    TP += 1
+                    label = np.delete(label, index)
+                else:
+                    FP += 1
+            else:
+                # all label is detected, rest of the predictions count as FP
+                FP += 1
+
+            # update stat
+            recall = TP / GT_class
+            precision = TP / (TP + FP)
+            recalls.append(recall)
+            precisions.append(precision)
+
+        # calculate precision at each recall level
+        for precision, recall in zip(precisions, recalls):
+            recall_index = int(recall / 0.1)
+            ap_r[recall_index] = max(ap_r[recall_index], precision)
+
+        return np.mean(ap_r)
+
+    m_aps = [mAP_per_batch(label, pred, score, valid_detection) for label, pred, score, valid_detection in
+             zip(y_true, y_pred, scores, valid_detections)]
+
+    return np.mean(m_aps)
 
 
 def yolo_loss(pred_sbbox, pred_mbbox, pred_lbbox, true_sbbox, true_mbbox, true_lbbox):
@@ -255,18 +307,17 @@ def output_bbox(input):
     class_probs = tf.concat(t, axis=1)
 
     scores = confidence * class_probs
-    scores = tf.reshape(scores[..., 1], (tf.shape(scores)[0], -1, 1))
 
-    boxes, scores, classes, valid_detections = tf.image.combined_non_max_suppression(
+    bboxes, scores, classes, valid_detections = tf.image.combined_non_max_suppression(
         boxes=tf.reshape(bbox, (tf.shape(bbox)[0], -1, 1, 4)),
-        scores=scores,
+        scores=tf.reshape(scores, (tf.shape(scores)[0], -1, tf.shape(scores)[-1])),
         max_output_size_per_class=100,
         max_total_size=100,
         iou_threshold=yolo_iou_threshold,
         score_threshold=yolo_score_threshold
     )
 
-    return boxes, scores, classes, valid_detections
+    return bboxes, scores, classes, valid_detections
 
 
 # reference code from https://github.com/zzh8829/yolov3-tf2/blob/master/yolov3_tf2/models.py
@@ -282,12 +333,35 @@ class YoloV3(tf.keras.Model):
         self.output_conv = [MyConv2D(
             filters=len(anchors) * (self.num_class + 5),
             kernel_size=1,
+            activation=False,
             apply_batchnorm=False
         ) for anchors in yolo_anchor_masks]
-        self.conv_1 = MyConv2D(filters=256, kernel_size=1)
-        self.conv_2 = MyConv2D(filters=128, kernel_size=1)
-        self.res_1 = [ResidualBlock(filters=[256, 512], kernel_size=[1, 3]) for _ in range(0, 3)]
-        self.res_2 = [ResidualBlock(filters=[128, 256], kernel_size=[1, 3]) for _ in range(0, 3)]
+
+        # small scale conv
+        self.conv_1_1 = MyConv2D(filters=512, kernel_size=1)
+        self.conv_1_2 = MyConv2D(filters=1024, kernel_size=3)
+        self.conv_1_3 = MyConv2D(filters=512, kernel_size=1)
+        self.conv_1_4 = MyConv2D(filters=1024, kernel_size=3)
+        self.conv_1_5 = MyConv2D(filters=512, kernel_size=1)
+        self.conv_1_6 = MyConv2D(filters=1024, kernel_size=3)
+
+        # medium scale conv
+        self.conv_1_branch = MyConv2D(filters=256, kernel_size=1)
+        self.conv_2_1 = MyConv2D(filters=256, kernel_size=1)
+        self.conv_2_2 = MyConv2D(filters=512, kernel_size=3)
+        self.conv_2_3 = MyConv2D(filters=256, kernel_size=1)
+        self.conv_2_4 = MyConv2D(filters=512, kernel_size=3)
+        self.conv_2_5 = MyConv2D(filters=256, kernel_size=1)
+        self.conv_2_6 = MyConv2D(filters=512, kernel_size=3)
+
+        # large scale conv
+        self.conv_2_branch = MyConv2D(filters=128, kernel_size=1)
+        self.conv_3_1 = MyConv2D(filters=128, kernel_size=1)
+        self.conv_3_2 = MyConv2D(filters=256, kernel_size=3)
+        self.conv_3_3 = MyConv2D(filters=128, kernel_size=1)
+        self.conv_3_4 = MyConv2D(filters=256, kernel_size=3)
+        self.conv_3_5 = MyConv2D(filters=128, kernel_size=1)
+        self.conv_3_6 = MyConv2D(filters=256, kernel_size=3)
 
     def yolo_output(self, input, conv, anchors, training=False):
         x = conv(input, training=training)
@@ -300,29 +374,44 @@ class YoloV3(tf.keras.Model):
     def call(self, inputs, training=False, **kwargs):
         masks = yolo_anchor_masks
 
-        scale1, scale2, scale3 = self.darknet(inputs, training=training)
+        output_small, output_medium, output_large = self.darknet(inputs, training=training)
 
-        # scale 1 output
-        scale_1_detector = self.yolo_output(scale1, self.output_conv[0], len(masks[0]), training=training)
+        # small scale output
+        output_small = self.conv_1_1(output_small, training=training)
+        output_small = self.conv_1_2(output_small, training=training)
+        output_small = self.conv_1_3(output_small, training=training)
+        output_small = self.conv_1_4(output_small, training=training)
+        output_small = self.conv_1_5(output_small, training=training)
 
-        # scale 2 output
-        scale_2_detector = self.conv_1(scale1, training=training)
-        scale_2_detector = self.upsampling2d(scale_2_detector)
-        scale_2_detector = self.concat([scale2, scale_2_detector])
-        for res in self.res_1:
-            scale_2_detector = res(scale_2_detector, training=training)
-        # FPN shortcut
-        scale_3_shortcut = scale_2_detector
-        # scale 2 output
-        scale_2_detector = self.yolo_output(scale_2_detector, self.output_conv[1], len(masks[1]), training=training)
+        sbbox = self.conv_1_6(output_small, training=training)
+        sbbox = self.yolo_output(sbbox, self.output_conv[0], len(masks[0]), training=training)
 
-        # scale 3 output
-        scale_3_detector = self.conv_2(scale_3_shortcut, training=training)
-        scale_3_detector = self.upsampling2d(scale_3_detector)
-        scale_3_detector = self.concat([scale3, scale_3_detector])
-        for res in self.res_2:
-            scale_3_detector = res(scale_3_detector, training=training)
-        # scale 3 output
-        scale_3_detector = self.yolo_output(scale_3_detector, self.output_conv[2], len(masks[2]), training=training)
+        # medium scale output
+        output_small_branch = self.conv_1_branch(output_small, training=training)
+        output_small_branch = self.upsampling2d(output_small_branch)
+        output_medium = self.concat([output_small_branch, output_medium])
 
-        return scale_1_detector, scale_2_detector, scale_3_detector
+        output_medium = self.conv_2_1(output_medium, training=training)
+        output_medium = self.conv_2_2(output_medium, training=training)
+        output_medium = self.conv_2_3(output_medium, training=training)
+        output_medium = self.conv_2_4(output_medium, training=training)
+        output_medium = self.conv_2_5(output_medium, training=training)
+
+        mbbox = self.conv_2_6(output_medium, training=training)
+        mbbox = self.yolo_output(mbbox, self.output_conv[1], len(masks[1]), training=training)
+
+        # large scale output
+        output_medium_branch = self.conv_2_branch(output_medium, training=training)
+        output_medium_branch = self.upsampling2d(output_medium_branch)
+        output_large = self.concat([output_medium_branch, output_large])
+
+        output_large = self.conv_3_1(output_large, training=training)
+        output_large = self.conv_3_2(output_large, training=training)
+        output_large = self.conv_3_3(output_large, training=training)
+        output_large = self.conv_3_4(output_large, training=training)
+        output_large = self.conv_3_5(output_large, training=training)
+        output_large = self.conv_3_6(output_large, training=training)
+
+        lbbox = self.yolo_output(output_large, self.output_conv[2], len(masks[2]), training=training)
+
+        return sbbox, mbbox, lbbox
