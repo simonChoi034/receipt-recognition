@@ -313,8 +313,8 @@ def output_bbox(input):
         scores=tf.reshape(scores, (tf.shape(scores)[0], -1, tf.shape(scores)[-1])),
         max_output_size_per_class=100,
         max_total_size=100,
-        iou_threshold=yolo_iou_threshold,
-        score_threshold=yolo_score_threshold
+        iou_threshold=0.45,
+        score_threshold=0.3
     )
 
     return bboxes, scores, classes, valid_detections
