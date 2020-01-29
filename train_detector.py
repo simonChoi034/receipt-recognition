@@ -145,8 +145,6 @@ def train(dataset_train, dataset_val, train_generator, val_generator):
 
         ckpt.step.assign_add(1)
 
-        print(optimizer.lr)
-
         if 0 < train_loss / train_config['batch_size'] <= 2.0 or int(ckpt.step) >= train_config['total_steps']:
             print("Early stopping")
             print("Final training loss {:1.2f}".format(train_loss / train_config['batch_size']))
