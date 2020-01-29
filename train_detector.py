@@ -115,8 +115,6 @@ def metrics_logging(writer, data, generator):
     mAP_75 = mAP(gt_box, bboxes.numpy(), scores=scores.numpy(), valid_detections=valid_detections.numpy(),
                  threshold=0.75)
 
-    print(mAP_50)
-
     plt_image = plot_bounding_box(data['image'], bboxes, scores, valid_detections, ckpt.step, mode='train')
 
     with writer.as_default():
@@ -149,7 +147,7 @@ def train(dataset_train, dataset_val, train_generator, val_generator):
 
         print(optimizer.lr)
 
-        if 0 < train_loss / train_config['batch_size'] <= 5.0 or int(ckpt.step) >= train_config['total_steps']:
+        if 0 < train_loss / train_config['batch_size'] <= 2.0 or int(ckpt.step) >= train_config['total_steps']:
             print("Early stopping")
             print("Final training loss {:1.2f}".format(train_loss / train_config['batch_size']))
             return

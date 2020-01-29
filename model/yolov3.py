@@ -131,22 +131,22 @@ def mAP(y_true, y_pred, scores, valid_detections, threshold):
         label = np.asarray(label)
         GT_class = len(label)
 
+        detected_label = []
         recalls = []
         precisions = []
         ap_r = [0.0 for _ in range(11)]
         TP = FP = 0
 
         for p in pred:
-            if len(label > 0):
-                iou_scores = [iou(l, p) for l in label]
-                iou_score, index = np.max(iou_scores), np.argmax(iou_scores)
-                if iou_score > threshold:
-                    TP += 1
-                    label = np.delete(label, index)
-                else:
-                    FP += 1
+            iou_scores = np.asarray([iou(l, p) for l in label])
+            # set the iou score of the labels which have been detected to 0
+            # label
+            iou_scores[detected_label] = 0.0
+            iou_score, index = np.max(iou_scores), np.argmax(iou_scores)
+            if iou_score > threshold:
+                TP += 1
+                detected_label.append(index)
             else:
-                # all label is detected, rest of the predictions count as FP
                 FP += 1
 
             # update stat
@@ -157,8 +157,8 @@ def mAP(y_true, y_pred, scores, valid_detections, threshold):
 
         # calculate precision at each recall level
         for precision, recall in zip(precisions, recalls):
-            recall_index = int(recall / 0.1)
-            ap_r[recall_index] = max(ap_r[recall_index], precision)
+            recall_index = int(round(recall / 0.1, 2))
+            ap_r = [max(value, precision) if i <= recall_index else value for i, value in enumerate(ap_r)]
 
         return np.mean(ap_r)
 
