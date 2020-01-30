@@ -277,7 +277,7 @@ def plot_bounding_box(imgs, labels, scores, valid_detections, steps, mode):
 
         rect = mpatches.Rectangle((x, y), w, h, linewidth=2,
                                   edgecolor=c[i], facecolor='none')
-        ax.annotate(score, (x, y - 4), color=c[i])
+        ax.annotate("{:1.2f}".format(score), (x, y - 4), color=c[i])
         ax.add_patch(rect)
 
     img_file = "./figure/{}/image_{}.png".format(mode, int(steps / 100 % 30))
