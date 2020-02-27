@@ -162,7 +162,7 @@ class ReceiptClassifyGenerator:
         return np.pad(array, (0, num - arr_len), 'constant')
 
     def transform_ascii(self, string):
-        return [ord(c) for c in string]
+        return [ord(c) for c in string if 0 <= ord(c) < 128]
 
     def transform_data(self, array):
         word_list = [ele['word'] for ele in array]
