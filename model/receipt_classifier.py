@@ -28,11 +28,11 @@ class RNNClassifier(tf.keras.Model):
     def __init__(self, num_class, name='lstm-classifier', **kwargs):
         super(RNNClassifier, self).__init__(name=name, **kwargs)
         self.rnn1 = Bidirectional(
-            GRU(128, return_sequences=True, stateful=True, recurrent_initializer='glorot_uniform'))
+            GRU(128, return_sequences=True, recurrent_initializer='glorot_uniform'))
         self.rnn2 = Bidirectional(
-            GRU(256, return_sequences=True, stateful=True, recurrent_initializer='glorot_uniform'))
+            GRU(256, return_sequences=True, recurrent_initializer='glorot_uniform'))
         self.rnn3 = Bidirectional(
-            GRU(512, return_sequences=True, stateful=True, recurrent_initializer='glorot_uniform'))
+            GRU(512, return_sequences=True, recurrent_initializer='glorot_uniform'))
         self.dense = TimeDistributed(Dense(num_class))
 
     def call(self, inputs, training=None, mask=None):
@@ -53,11 +53,11 @@ class WordEmbedding(tf.keras.Model):
         self.char_size = char_size
         self.vocab_size = vocab_size
         self.embedding = Embedding(vocab_size, embedding_dim)
-        self.encoder1 = GRU(128, return_sequences=True, stateful=True, recurrent_initializer='glorot_uniform')
-        self.encoder2 = GRU(64, return_sequences=False, stateful=True, recurrent_initializer='glorot_uniform')
+        self.encoder1 = GRU(128, return_sequences=True, recurrent_initializer='glorot_uniform')
+        self.encoder2 = GRU(64, return_sequences=False, recurrent_initializer='glorot_uniform')
         self.repeat_vector = RepeatVector(char_size)
-        self.decoder1 = GRU(64, return_sequences=True, stateful=True, recurrent_initializer='glorot_uniform')
-        self.decoder2 = GRU(128, return_sequences=True, stateful=True, recurrent_initializer='glorot_uniform')
+        self.decoder1 = GRU(64, return_sequences=True, recurrent_initializer='glorot_uniform')
+        self.decoder2 = GRU(128, return_sequences=True, recurrent_initializer='glorot_uniform')
         self.dense = TimeDistributed(Dense(vocab_size))
 
     def call(self, inputs, training=None, mask=None):
@@ -65,17 +65,17 @@ class WordEmbedding(tf.keras.Model):
         # input shape: [batch_size * word_size, char_size]
         x = tf.reshape(inputs, (-1, self.char_size))
         x = self.embedding(x)  # shape = [batch_size * word_size, char_size, embedding_dim]
-        x = self.encoder1(x)  # shape = [batch_size * word_size, char_size, 256]
-        x = self.encoder2(x)  # shape = [batch_size * word_size, 128]
+        x = self.encoder1(x)  # shape = [batch_size * word_size, char_size, 128]
+        x = self.encoder2(x)  # shape = [batch_size * word_size, 64]
 
         if not training:
             # output shape = [batch_size, word_size, 64]
             x = tf.reshape(x, (-1, self.word_size, 64))
             return x
 
-        x = self.repeat_vector(x)  # shape = [batch_size * word_size, char_size, 128]
-        x = self.decoder1(x)  # shape = [batch_size * word_size, char_size, 128]
-        x = self.decoder2(x)  # shape = [batch_size * word_size, char_size, 256]
+        x = self.repeat_vector(x)  # shape = [batch_size * word_size, char_size, 64]
+        x = self.decoder1(x)  # shape = [batch_size * word_size, char_size, 64]
+        x = self.decoder2(x)  # shape = [batch_size * word_size, char_size, 128]
         x = self.dense(x)  # shape = [batch_size * word_size, char_size, vocab_size]
 
         x = tf.reshape(x, (-1, self.word_size, self.char_size, self.vocab_size))

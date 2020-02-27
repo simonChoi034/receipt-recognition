@@ -84,7 +84,7 @@ def train_embedding_layer(dataset):
             print("Saved checkpoint for step {}: {}".format(int(ckpt.step), save_path))
             print("training loss {:1.2f}".format(loss.numpy()))
 
-            if loss < 1e-3 or int(ckpt.step) > 12500:
+            if loss < 1e-3:
                 print("Training finished")
                 print("Final loss {:1.3f}".format(loss.numpy()))
 
