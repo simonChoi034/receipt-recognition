@@ -1,6 +1,7 @@
 import math
 import os
 import re
+import json
 
 import imagesize
 import matplotlib.pyplot as plt
@@ -137,4 +138,64 @@ class ReceiptGenerator:
                 'scale_1_label': scale_1_label,
                 'scale_2_label': scale_2_label,
                 'scale_3_label': scale_3_label
+            })
+
+
+class ReceiptClassifyGenerator:
+    def __init__(self, dataset_dir, vocab_size, word_size, char_size):
+        self.vocab_size = vocab_size  # 128 -> ascii number
+        self.word_size = word_size
+        self.char_size = char_size
+        self.filenames = sorted(
+            [os.path.join(dataset_dir, f) for f in os.listdir(dataset_dir) if re.match(r'.*\.json', f)])
+        self.data = [self.read_file(file) for file in self.filenames]
+        self.word_lists = []
+        self.labels = []
+
+    def read_file(self, file):
+        with open(file, 'r') as json_file:
+            data = json.load(json_file)
+            return data['data']
+
+    def pad_zero(self, array, num):
+        arr_len = len(array)
+        return np.pad(array, (0, num - arr_len), 'constant')
+
+    def transform_ascii(self, string):
+        return [ord(c) for c in string]
+
+    def transform_data(self, array):
+        word_list = [ele['word'] for ele in array]
+        class_inx = [ele['class'] for ele in array]
+
+        word_list = [self.transform_ascii(word) for word in word_list]
+        word_list = np.asarray([self.pad_zero(word, self.char_size) for word in word_list])
+
+        class_inx = self.pad_zero(class_inx, self.word_size)
+        word_len = len(word_list)
+        zeros = np.zeros((self.word_size - word_len, self.char_size))
+        word_list = np.concatenate([word_list, zeros], axis=0)
+
+        return word_list, class_inx
+
+    def set_dataset_info(self):
+        word_lists = []
+        labels = []
+        for d in self.data:
+            word_list, label = self.transform_data(d)
+            word_lists.append(word_list)
+            labels.append(label)
+
+        self.word_lists = np.asarray(word_lists)
+        self.labels = np.asarray(labels)
+
+    def gen_next_pair(self):
+        while True:
+            index = np.random.randint(0, len(self.filenames))
+
+            word_list, label = self.word_lists[index], self.labels[index]
+
+            yield ({
+                'word_list': word_list,
+                'label': label
             })

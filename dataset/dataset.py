@@ -49,5 +49,22 @@ class DetectorDataset:
 
 
 class ClassifierDataset:
-    def __init__(self, generator):
+    def __init__(self, generator, batch_size, buffer_size, prefetch_size):
         self.generator = generator
+        self.batch_size = batch_size
+        self.buffer_size = buffer_size
+        self.prefetch_size = prefetch_size
+
+    def create_dataset(self):
+        dataset = tf.data.Dataset.from_generator(
+            self.generator.gen_next_pair,
+            output_types={
+                'word_list': tf.float32,
+                'label': tf.float32
+            }
+        )
+        dataset = dataset.shuffle(buffer_size=self.buffer_size)
+        dataset = dataset.batch(batch_size=self.batch_size)
+        dataset = dataset.prefetch(buffer_size=self.prefetch_size)
+
+        return dataset
