@@ -127,7 +127,7 @@ def train_embedding_layer(dataset):
             print("Saved checkpoint for step {}: {}".format(int(embedding_layer_ckpt.step), save_path))
             print("training loss {:1.5f}".format(loss.numpy()))
 
-        if loss < 2e-3:
+        if loss < 2e-3 or int(embedding_layer_ckpt.step) >= train_config['total_steps']:
             embedding_layer.save('./saved_model/embedding_layer')
             print("Training finished")
             print("Final loss {:1.5f}".format(loss.numpy()))
@@ -186,7 +186,7 @@ def train_classifier(dataset):
                 tf.summary.scalar("Accuracy", accuracy.result().numpy(), step=int(model_ckpt.step))
                 tf.summary.image("Confusion Matrix", confusion_matrix, step=int(model_ckpt.step))
 
-        if loss < 1e-3:
+        if loss < 1e-3 or int(model_ckpt.step) >= train_config['total_steps']:
             model.save('./saved_model/receipt_classifier')
             print("Training finished")
             print("Final loss {:1.5f}".format(loss.numpy()))
