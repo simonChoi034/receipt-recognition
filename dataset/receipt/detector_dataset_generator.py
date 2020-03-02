@@ -158,7 +158,7 @@ class ReceiptClassifyGenerator:
         self.mode = mode
         # dir = <dir>/{train|val}/<filename>.json
         self.filenames = sorted(
-            [os.path.join(dataset_dir, mode, f) for f in os.listdir(dataset_dir) if re.match(r'.*\.json', f)])
+            [os.path.join(dataset_dir, mode, f) for f in os.listdir(os.path.join(dataset_dir, mode)) if re.match(r'.*\.json', f)])
         self.data = [self.read_file(file) for file in self.filenames]
         self.document_lists = []
         self.labels = []

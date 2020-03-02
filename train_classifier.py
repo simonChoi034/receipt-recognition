@@ -185,7 +185,7 @@ def train_classifier(train_dataset, val_dataset):
 
         model_ckpt.step.assign_add(1)
 
-        if int(model_ckpt.step) % 100 == 0:
+        if int(model_ckpt.step) % 10 == 0:
             # training set
             confusion_matrix = create_confusion_matrix(y_true=data['label'].numpy(), y_pred=pred)
             mean_precision, mean_recall, mean_f1 = create_classification_report(y_true=data['label'].numpy(),
