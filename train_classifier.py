@@ -1,9 +1,15 @@
 import argparse
 import datetime
+import io
 
+import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+import seaborn as sns
 import tensorflow as tf
 from tensorflow.keras.losses import SparseCategoricalCrossentropy
+from tensorflow.keras.metrics import Accuracy
+from sklearn.metrics import confusion_matrix
 
 from dataset.dataset import ClassifierDataset
 from dataset.receipt.detector_dataset_generator import ReceiptClassifyGenerator
@@ -14,7 +20,9 @@ VOCAB_SIZE = 128
 WORD_SIZE = 250
 CHAR_SIZE = 100
 EMBEDDING_DIM = 256
-NUM_CLASS = 5
+NUM_CLASS = 7
+CLASS_NAME = ["Don't care", "Merchant Name", "Merchant Phone Number", "Merchant Address", "Transaction Date",
+              "Transaction Time", "Total"]
 
 try:
     tf.enable_eager_execution()
@@ -35,6 +43,19 @@ embedding_layer = WordEmbedding(
 model = RNNClassifier(num_class=NUM_CLASS)
 optimizer = tf.keras.optimizers.Adam(lr=LR_INIT, clipvalue=0.5)
 loss_fn = SparseCategoricalCrossentropy(from_logits=True)
+accuracy = Accuracy()
+
+# checkpoint manager
+embedding_layer_ckpt = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optimizer, net=embedding_layer)
+embedding_layer_manager = tf.train.CheckpointManager(embedding_layer_ckpt, './checkpoints/embedding_layer_train.tf',
+                                                     max_to_keep=5)
+model_ckpt = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optimizer, net=model)
+model_manager = tf.train.CheckpointManager(model_ckpt, './checkpoints/receipt_classifier_train.tf', max_to_keep=5)
+
+# tensorboard config
+current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+embedding_layer_train_log_dir = 'logs/embedding_layer/' + current_time + '/train'
+receipt_classifier_train_log_dir = 'logs/receipt_classifier/' + current_time + '/train'
 
 
 @tf.function
@@ -51,17 +72,14 @@ def train_embedding_layer_one_step(x, y):
 
 
 def train_embedding_layer(dataset):
+    # setup tensorboard
+    train_summary_writer = tf.summary.create_file_writer(embedding_layer_train_log_dir)
+
     # restore checkpoint
-    ckpt = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optimizer, net=embedding_layer)
-    manager = tf.train.CheckpointManager(ckpt, './checkpoints/embedding_layer_train.tf', max_to_keep=5)
-    ckpt.restore(manager.latest_checkpoint)
+    embedding_layer_ckpt.restore(embedding_layer_manager.latest_checkpoint)
 
-    current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    train_log_dir = 'logs/embedding_layer/' + current_time + '/train'
-    train_summary_writer = tf.summary.create_file_writer(train_log_dir)
-
-    if manager.latest_checkpoint:
-        print("Restored from {}".format(manager.latest_checkpoint))
+    if embedding_layer_manager.latest_checkpoint:
+        print("Restored from {}".format(embedding_layer_manager.latest_checkpoint))
     else:
         print("Initializing from scratch.")
 
@@ -69,24 +87,26 @@ def train_embedding_layer(dataset):
         loss, pred = train_embedding_layer_one_step(data['word_list'], data['word_list'])
         pred = np.argmax(pred.numpy(), axis=-1)  # shape = [batch_size, word_size, char_size]
 
-        ckpt.step.assign_add(1)
+        embedding_layer_ckpt.step.assign_add(1)
 
-        if int(ckpt.step) % 10 == 0:
+        if int(embedding_layer_ckpt.step) % 100 == 0:
             # tensorboard logging
             y_true_string = ascii_to_string(data['word_list'].numpy()[0][0])
             y_pred_string = ascii_to_string(pred[0][0])
             with train_summary_writer.as_default():
-                tf.summary.scalar("loss", loss, step=int(ckpt.step))
-                tf.summary.text("Prediction", y_pred_string, step=int(ckpt.step))
-                tf.summary.text("Ground Truth", y_true_string, step=int(ckpt.step))
+                tf.summary.scalar("loss", loss, step=int(embedding_layer_ckpt.step))
+                tf.summary.text("Prediction", y_pred_string, step=int(embedding_layer_ckpt.step))
+                tf.summary.text("Ground Truth", y_true_string, step=int(embedding_layer_ckpt.step))
 
-            save_path = manager.save()
-            print("Saved checkpoint for step {}: {}".format(int(ckpt.step), save_path))
-            print("training loss {:1.2f}".format(loss.numpy()))
+            save_path = embedding_layer_manager.save()
+            print("Saved checkpoint for step {}: {}".format(int(embedding_layer_ckpt.step), save_path))
+            print("training loss {:1.5f}".format(loss.numpy()))
 
-            if loss < 1e-3:
-                print("Training finished")
-                print("Final loss {:1.3f}".format(loss.numpy()))
+        if loss < 2e-3:
+            embedding_layer.save('./saved_model/embedding_layer')
+            print("Training finished")
+            print("Final loss {:1.5f}".format(loss.numpy()))
+            return
 
 
 @tf.function
@@ -104,14 +124,19 @@ def train_classifier_one_step(x, y):
 
 
 def train_classifier(dataset):
-    ckpt = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optimizer, net=model)
-    manager = tf.train.CheckpointManager(ckpt, './checkpoints/receipt_classifier_train.tf', max_to_keep=5)
+    # load embedding layer
+    global embedding_layer
+    embedding_layer = tf.keras.models.load_model('saved_model/embedding_layer')
+    embedding_layer.trainable = False
+
+    # setup tensorboard
+    train_summary_writer = tf.summary.create_file_writer(receipt_classifier_train_log_dir)
 
     # restore checkpoint
-    ckpt.restore(manager.latest_checkpoint)
+    model_ckpt.restore(model_manager.latest_checkpoint)
 
-    if manager.latest_checkpoint:
-        print("Restored from {}".format(manager.latest_checkpoint))
+    if model_manager.latest_checkpoint:
+        print("Restored from {}".format(model_manager.latest_checkpoint))
     else:
         print("Initializing from scratch.")
 
@@ -120,7 +145,53 @@ def train_classifier(dataset):
 
     for data in dataset:
         loss, pred = train_classifier_one_step(data['word_list'], data['label'])
-        print(loss)
+        pred = np.argmax(pred, axis=-1)
+
+        tf.print(loss)
+
+        model_ckpt.step.assign_add(1)
+
+        if int(model_ckpt.step) % 100:
+            accuracy.update_state(y_true=data['label'], y_pred=pred)
+            confusion_matrix = create_confusion_matrix(y_true=data['label'].numpy(), y_pred=pred)
+
+            with train_summary_writer.as_default():
+                tf.summary.scalar("loss", loss, step=int(model_ckpt.step))
+                tf.summary.scalar("Accuracy", accuracy.result().numpy(), step=int(model_ckpt.step))
+                tf.summary.image("Confusion Matrix", confusion_matrix, step=int(model_ckpt.step))
+
+        if loss < 1e-3:
+            model.save('./saved_model/receipt_classifier')
+            print("Training finished")
+            print("Final loss {:1.5f}".format(loss.numpy()))
+            return
+
+
+def create_confusion_matrix(y_true, y_pred):
+    y_true = np.reshape(y_true, (-1)).astype(int)
+    y_pred = np.reshape(y_pred, (-1)).astype(int)
+    con_mat = confusion_matrix(y_true=y_true, y_pred=y_pred, labels=range(NUM_CLASS), normalize='true')
+    con_mat_norm = np.around(con_mat.astype('float') / con_mat.sum(axis=1)[:, np.newaxis], decimals=2)
+    con_mat_norm = np.nan_to_num(con_mat_norm)
+    con_mat_df = pd.DataFrame(con_mat_norm,
+                              index=CLASS_NAME,
+                              columns=CLASS_NAME)
+
+    figure = plt.figure(figsize=(8, 8))
+    sns.heatmap(con_mat_df, annot=True, cmap=plt.cm.Blues)
+    plt.tight_layout()
+    plt.ylabel('True label')
+    plt.xlabel('Predicted label')
+
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png')
+
+    plt.close(figure)
+    buf.seek(0)
+    image = tf.image.decode_png(buf.getvalue(), channels=4)
+    image = tf.expand_dims(image, 0)
+
+    return image
 
 
 def ascii_to_string(ascii_array):

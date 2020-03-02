@@ -148,6 +148,7 @@ def train(dataset_train, dataset_val, train_generator, val_generator):
         if 0 < train_loss / train_config['batch_size'] <= 2.0 or int(ckpt.step) >= train_config['total_steps']:
             print("Early stopping")
             print("Final training loss {:1.2f}".format(train_loss / train_config['batch_size']))
+            model.save('./saved_model/yolov3_2.0')
             return
 
         if train_loss < 0:

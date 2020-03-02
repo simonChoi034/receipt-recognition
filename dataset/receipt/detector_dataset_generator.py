@@ -1,11 +1,20 @@
+import json
 import math
 import os
 import re
-import json
 
 import imagesize
 import matplotlib.pyplot as plt
 import numpy as np
+
+class_ids = {
+    "MerchantName": 1,
+    "MerchantPhoneNumber": 2,
+    "MerchantAddress": 3,
+    "TransactionDate": 4,
+    "TransactionTime": 5,
+    "Total": 6
+}
 
 
 class ReceiptGenerator:
@@ -149,13 +158,13 @@ class ReceiptClassifyGenerator:
         self.filenames = sorted(
             [os.path.join(dataset_dir, f) for f in os.listdir(dataset_dir) if re.match(r'.*\.json', f)])
         self.data = [self.read_file(file) for file in self.filenames]
-        self.word_lists = []
+        self.document_lists = []
         self.labels = []
 
     def read_file(self, file):
         with open(file, 'r') as json_file:
             data = json.load(json_file)
-            return data['data']
+            return data['analyzeResult']
 
     def pad_zero(self, array, num):
         arr_len = len(array)
@@ -165,7 +174,7 @@ class ReceiptClassifyGenerator:
         return [ord(c) for c in string if 0 <= ord(c) < 128]
 
     def transform_data(self, array):
-        word_list = [ele['word'] for ele in array]
+        word_list = [ele['text'] for ele in array]
         class_inx = [ele['class'] for ele in array]
 
         word_list = [self.transform_ascii(word) for word in word_list]
@@ -178,22 +187,53 @@ class ReceiptClassifyGenerator:
 
         return word_list, class_inx
 
-    def set_dataset_info(self):
-        word_lists = []
-        labels = []
-        for d in self.data:
-            word_list, label = self.transform_data(d)
-            word_lists.append(word_list)
-            labels.append(label)
+    def pad_class_id(self):
+        for document in self.data:
+            # initial all words class id to 0
+            for page in document['readResults']:
+                for line in page['lines']:
+                    for word in line['words']:
+                        word['class'] = 0
 
-        self.word_lists = np.asarray(word_lists)
-        self.labels = np.asarray(labels)
+            # set class id for words
+            document_results = document['documentResults']
+            for document_result in document_results:
+                class_fields = document_result['fields']
+                for class_key, class_id in class_ids.items():
+                    if class_key in class_fields:
+                        for word_element in class_fields[class_key]['elements']:
+                            word_element = word_element.split('/')
+                            page_idx = int(word_element[2])
+                            line_idx = int(word_element[4])
+                            word_idx = int(word_element[6])
+                            document['readResults'][page_idx]['lines'][line_idx]['words'][word_idx]['class'] = class_id
+
+    def create_word_array(self):
+        for document in self.data:
+            document_words = []
+            for page in document['readResults']:
+                for line in page['lines']:
+                    for word in line['words']:
+                        document_words.append(word)
+
+            document_words, label = self.transform_data(document_words)
+
+            self.document_lists.append(document_words)
+            self.labels.append(label)
+
+        # create np array
+        self.document_lists = np.asarray(self.document_lists)
+        self.labels = np.asarray(self.labels)
+
+    def set_dataset_info(self):
+        self.pad_class_id()
+        self.create_word_array()
 
     def gen_next_pair(self):
         while True:
             index = np.random.randint(0, len(self.filenames))
 
-            word_list, label = self.word_lists[index], self.labels[index]
+            word_list, label = self.document_lists[index], self.labels[index]
 
             yield ({
                 'word_list': word_list,

@@ -25,18 +25,18 @@ class ResnetLSTMClassifier(tf.keras.Model):
 
 
 class RNNClassifier(tf.keras.Model):
-    def __init__(self, num_class, name='lstm-classifier', **kwargs):
+    def __init__(self, num_class, name='rnn-classifier', **kwargs):
         super(RNNClassifier, self).__init__(name=name, **kwargs)
         self.rnn1 = Bidirectional(
-            GRU(128, return_sequences=True, recurrent_initializer='glorot_uniform'))
+            GRU(64, return_sequences=True, recurrent_initializer='glorot_uniform'))
         self.rnn2 = Bidirectional(
-            GRU(256, return_sequences=True, recurrent_initializer='glorot_uniform'))
+            GRU(128, return_sequences=True, recurrent_initializer='glorot_uniform'))
         self.rnn3 = Bidirectional(
-            GRU(512, return_sequences=True, recurrent_initializer='glorot_uniform'))
+            GRU(256, return_sequences=True, recurrent_initializer='glorot_uniform'))
         self.dense = TimeDistributed(Dense(num_class))
 
     def call(self, inputs, training=None, mask=None):
-        # input shape = [batch_size, word_size, 128]
+        # input shape = [batch_size, word_size, 64]
         x = self.rnn1(inputs)  # shape = [batch_size, word_size, 128]
         x = self.rnn2(x)  # shape = [batch_size, word_size, 256]
         x = self.rnn3(x)  # shape = [batch_size, word_size, 512]
