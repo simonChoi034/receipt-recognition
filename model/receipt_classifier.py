@@ -1,5 +1,6 @@
 import tensorflow as tf
 from tensorflow.keras.layers import Reshape, Bidirectional, LSTM, Dense, GRU, Embedding, TimeDistributed, RepeatVector
+from tensorflow_addons.text.crf import CrfDecodeForwardRnnCell
 
 from model.resnet import Resnet18
 
@@ -28,19 +29,20 @@ class RNNClassifier(tf.keras.Model):
     def __init__(self, num_class, name='rnn-classifier', **kwargs):
         super(RNNClassifier, self).__init__(name=name, **kwargs)
         self.rnn1 = Bidirectional(
-            LSTM(512, return_sequences=True, recurrent_initializer='glorot_uniform', recurrent_dropout=0.2,
+            LSTM(64, return_sequences=True, recurrent_initializer='glorot_uniform', recurrent_dropout=0.2,
                  dropout=0.2))
         self.rnn2 = Bidirectional(
-            LSTM(512, return_sequences=True, recurrent_initializer='glorot_uniform', recurrent_dropout=0.2,
+            LSTM(128, return_sequences=True, recurrent_initializer='glorot_uniform', recurrent_dropout=0.2,
                  dropout=0.2))
-        self.dense = TimeDistributed(Dense(num_class))
+        self.dense = TimeDistributed(Dense(64))
+        self.crf = CrfDecodeForwardRnnCell(num_class)
 
     def call(self, inputs, training=None, mask=None):
         # input shape = [batch_size, word_size, 64]
         x = self.rnn1(inputs)  # shape = [batch_size, word_size, 1024]
-        x_rnn = self.rnn2(x)  # shape = [batch_size, word_size, 1024]
-        x = x + x_rnn
-        x = self.dense(x)  # shape = [batch_size, word_size, num_class]
+        x = self.rnn2(x)  # shape = [batch_size, word_size, 1024]
+        x = self.dense(x)  # shape = [batch_size, word_size, 64]
+        x = self.crf(x)  # shape = [batch_size, word_size, num_class]
 
         return x
 
