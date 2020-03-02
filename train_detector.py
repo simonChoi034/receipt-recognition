@@ -43,7 +43,7 @@ manager = tf.train.CheckpointManager(ckpt, checkpoint_dir, max_to_keep=5)
 # setup tensorboard
 current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 train_log_dir = 'logs/gradient_tape/' + current_time + '/train'
-val_log_dir = 'logs/gradient_tape/' + current_time + '/test'
+val_log_dir = 'logs/gradient_tape/' + current_time + '/val'
 train_summary_writer = tf.summary.create_file_writer(train_log_dir)
 val_summary_writer = tf.summary.create_file_writer(val_log_dir)
 

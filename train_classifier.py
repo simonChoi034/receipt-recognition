@@ -20,7 +20,7 @@ WORD_SIZE = 250
 CHAR_SIZE = 50
 EMBEDDING_DIM = 256
 WARMUP_EPOCHS = 2
-TRAIN_EPOCHS = 500
+TRAIN_EPOCHS = 100
 NUM_CLASS = 7
 CLASS_NAME = ["Don't care", "Merchant Name", "Merchant Phone Number", "Merchant Address", "Transaction Date",
               "Transaction Time", "Total"]
@@ -61,6 +61,7 @@ model_manager = tf.train.CheckpointManager(model_ckpt, './checkpoints/receipt_cl
 current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 embedding_layer_train_log_dir = 'logs/embedding_layer/' + current_time + '/train'
 receipt_classifier_train_log_dir = 'logs/receipt_classifier/' + current_time + '/train'
+receipt_classifier_val_log_dir = 'logs/receipt_classifier/' + current_time + '/val'
 
 
 def update_learning_rate(step):
@@ -75,6 +76,15 @@ def update_learning_rate(step):
         )
 
     optimizer.lr.assign(float(lr))
+
+
+@tf.function
+def validation(x, y):
+    embedding = embedding_layer(x)
+    pred = model(embedding)
+    loss = loss_fn(y_true=y, y_pred=pred)
+
+    return loss, pred
 
 
 @tf.function
@@ -146,7 +156,7 @@ def train_classifier_one_step(x, y):
     return loss, pred
 
 
-def train_classifier(dataset):
+def train_classifier(train_dataset, val_dataset):
     # load embedding layer
     global embedding_layer
     embedding_layer = tf.keras.models.load_model('saved_model/embedding_layer')
@@ -154,6 +164,7 @@ def train_classifier(dataset):
 
     # setup tensorboard
     train_summary_writer = tf.summary.create_file_writer(receipt_classifier_train_log_dir)
+    val_summary_writer = tf.summary.create_file_writer(receipt_classifier_val_log_dir)
 
     # restore checkpoint
     model_ckpt.restore(model_manager.latest_checkpoint)
@@ -166,8 +177,8 @@ def train_classifier(dataset):
     # set the word embedding layer to non-trainable
     embedding_layer.trainable = False
 
-    for data in dataset:
-        loss, pred = train_classifier_one_step(data['word_list'], data['label'])
+    for data in train_dataset:
+        train_loss, pred = train_classifier_one_step(data['word_list'], data['label'])
         pred = np.argmax(pred, axis=-1)
 
         update_learning_rate(int(model_ckpt.step))
@@ -175,13 +186,30 @@ def train_classifier(dataset):
         model_ckpt.step.assign_add(1)
 
         if int(model_ckpt.step) % 100 == 0:
+            # training set
             confusion_matrix = create_confusion_matrix(y_true=data['label'].numpy(), y_pred=pred)
             mean_precision, mean_recall, mean_f1 = create_classification_report(y_true=data['label'].numpy(),
                                                                                 y_pred=pred)
 
             with train_summary_writer.as_default():
                 tf.summary.scalar("lr", optimizer.lr, step=int(model_ckpt.step))
-                tf.summary.scalar("loss", loss, step=int(model_ckpt.step))
+                tf.summary.scalar("loss", train_loss, step=int(model_ckpt.step))
+                tf.summary.scalar("mean_precision", mean_precision, step=int(model_ckpt.step))
+                tf.summary.scalar("mean_recall", mean_recall, step=int(model_ckpt.step))
+                tf.summary.scalar("mean_f1", mean_f1, step=int(model_ckpt.step))
+                tf.summary.image("Confusion Matrix", confusion_matrix, step=int(model_ckpt.step))
+
+            # validation set
+            data_val = next(iter(val_dataset))
+            val_loss, pred = validation(data_val['word_list'], data_val['label'])
+
+            confusion_matrix = create_confusion_matrix(y_true=data_val['label'].numpy(), y_pred=pred)
+            mean_precision, mean_recall, mean_f1 = create_classification_report(y_true=data_val['label'].numpy(),
+                                                                                y_pred=pred)
+
+            with val_summary_writer.as_default():
+                tf.summary.scalar("lr", optimizer.lr, step=int(model_ckpt.step))
+                tf.summary.scalar("loss", val_loss, step=int(model_ckpt.step))
                 tf.summary.scalar("mean_precision", mean_precision, step=int(model_ckpt.step))
                 tf.summary.scalar("mean_recall", mean_recall, step=int(model_ckpt.step))
                 tf.summary.scalar("mean_f1", mean_f1, step=int(model_ckpt.step))
@@ -189,12 +217,12 @@ def train_classifier(dataset):
 
             save_path = model_manager.save()
             print("Saved checkpoint for step {}: {}".format(int(model_ckpt.step), save_path))
-            print("training loss {:1.5f}".format(loss.numpy()))
+            print("training loss {:1.5f}".format(train_loss.numpy()))
 
-        if loss < 1e-3 or int(model_ckpt.step) >= train_config['total_steps']:
+        if train_loss < 1e-3 or int(model_ckpt.step) >= train_config['total_steps']:
             model.save('./saved_model/receipt_classifier')
             print("Training finished")
-            print("Final loss {:1.5f}".format(loss.numpy()))
+            print("Final loss {:1.5f}".format(train_loss.numpy()))
             return
 
 
@@ -243,32 +271,48 @@ def ascii_to_string(ascii_array):
 
 def main(args):
     dataset_dir = args.dir[0:-1] if args.dir[-1] == '/' else args.dir
-    receipt_generator = ReceiptClassifyGenerator(
+    train_receipt_generator = ReceiptClassifyGenerator(
         dataset_dir=dataset_dir,
         vocab_size=VOCAB_SIZE,
         word_size=WORD_SIZE,
-        char_size=CHAR_SIZE
+        char_size=CHAR_SIZE,
+        mode='train'
+    )
+    val_receipt_generator = ReceiptClassifyGenerator(
+        dataset_dir=dataset_dir,
+        vocab_size=VOCAB_SIZE,
+        word_size=WORD_SIZE,
+        char_size=CHAR_SIZE,
+        mode='val'
     )
 
-    receipt_generator.set_dataset_info()
+    train_receipt_generator.set_dataset_info()
+    val_receipt_generator.set_dataset_info()
 
-    dataset_size = len(receipt_generator.document_lists)
+    dataset_size = len(train_receipt_generator.document_lists)
     train_config['warmup_steps'] = WARMUP_EPOCHS * dataset_size // args.batch_size
     train_config['total_steps'] = TRAIN_EPOCHS * dataset_size // args.batch_size
 
-    dataset_generator = ClassifierDataset(
-        generator=receipt_generator,
+    train_dataset_generator = ClassifierDataset(
+        generator=train_receipt_generator,
+        batch_size=args.batch_size,
+        buffer_size=BUFFER_SIZE,
+        prefetch_size=PREFETCH_SIZE
+    )
+    val_dataset_generator = ClassifierDataset(
+        generator=val_receipt_generator,
         batch_size=args.batch_size,
         buffer_size=BUFFER_SIZE,
         prefetch_size=PREFETCH_SIZE
     )
 
-    dataset = dataset_generator.create_dataset()
+    train_dataset = train_dataset_generator.create_dataset()
+    val_dataset = val_dataset_generator.create_dataset()
 
     if args.emb:
-        train_embedding_layer(dataset=dataset)
+        train_embedding_layer(dataset=train_dataset)
     else:
-        train_classifier(dataset=dataset)
+        train_classifier(train_dataset=train_dataset, val_dataset=val_dataset)
 
 
 if __name__ == '__main__':

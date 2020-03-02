@@ -151,12 +151,14 @@ class ReceiptGenerator:
 
 
 class ReceiptClassifyGenerator:
-    def __init__(self, dataset_dir, vocab_size, word_size, char_size):
+    def __init__(self, dataset_dir, vocab_size, word_size, char_size, mode):
         self.vocab_size = vocab_size  # 128 -> ascii number
         self.word_size = word_size
         self.char_size = char_size
+        self.mode = mode
+        # dir = <dir>/{train|val}/<filename>.json
         self.filenames = sorted(
-            [os.path.join(dataset_dir, f) for f in os.listdir(dataset_dir) if re.match(r'.*\.json', f)])
+            [os.path.join(dataset_dir, mode, f) for f in os.listdir(dataset_dir) if re.match(r'.*\.json', f)])
         self.data = [self.read_file(file) for file in self.filenames]
         self.document_lists = []
         self.labels = []
