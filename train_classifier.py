@@ -7,9 +7,8 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import tensorflow as tf
-from sklearn.metrics import confusion_matrix
+from sklearn.metrics import confusion_matrix, classification_report
 from tensorflow.keras.losses import SparseCategoricalCrossentropy
-from tensorflow.keras.metrics import Accuracy
 
 from dataset.dataset import ClassifierDataset
 from dataset.receipt.detector_dataset_generator import ReceiptClassifyGenerator
@@ -50,7 +49,6 @@ embedding_layer = WordEmbedding(
 model = RNNClassifier(num_class=NUM_CLASS)
 optimizer = tf.keras.optimizers.Adam(lr=LR_INIT, clipvalue=0.5)
 loss_fn = SparseCategoricalCrossentropy(from_logits=True)
-accuracy = Accuracy()
 
 # checkpoint manager
 embedding_layer_ckpt = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optimizer, net=embedding_layer)
@@ -177,13 +175,16 @@ def train_classifier(dataset):
         model_ckpt.step.assign_add(1)
 
         if int(model_ckpt.step) % 100:
-            accuracy.update_state(y_true=data['label'], y_pred=pred)
             confusion_matrix = create_confusion_matrix(y_true=data['label'].numpy(), y_pred=pred)
+            mean_precision, mean_recall, mean_f1 = create_classification_report(y_true=data['label'].numpy(),
+                                                                                y_pred=pred)
 
             with train_summary_writer.as_default():
                 tf.summary.scalar("lr", optimizer.lr, step=int(model_ckpt.step))
                 tf.summary.scalar("loss", loss, step=int(model_ckpt.step))
-                tf.summary.scalar("Accuracy", accuracy.result().numpy(), step=int(model_ckpt.step))
+                tf.summary.scalar("mean_precision", mean_precision, step=int(model_ckpt.step))
+                tf.summary.scalar("mean_recall", mean_recall, step=int(model_ckpt.step))
+                tf.summary.scalar("mean_f1", mean_f1, step=int(model_ckpt.step))
                 tf.summary.image("Confusion Matrix", confusion_matrix, step=int(model_ckpt.step))
 
         if loss < 1e-3 or int(model_ckpt.step) >= train_config['total_steps']:
@@ -191,6 +192,18 @@ def train_classifier(dataset):
             print("Training finished")
             print("Final loss {:1.5f}".format(loss.numpy()))
             return
+
+
+def create_classification_report(y_true, y_pred):
+    y_true = np.reshape(y_true, (-1)).astype(int)
+    y_pred = np.reshape(y_pred, (-1)).astype(int)
+    report = classification_report(y_true, y_pred, labels=range(NUM_CLASS), digits=3, output_dict=True, zero_division=0,
+                                   target_names=CLASS_NAME)
+    mean_precision = np.mean([report[name]['precision'] for name in CLASS_NAME])
+    mean_recall = np.mean([report[name]['recall'] for name in CLASS_NAME])
+    mean_f1 = np.mean([report[name]['f1-score'] for name in CLASS_NAME])
+
+    return mean_precision, mean_recall, mean_f1
 
 
 def create_confusion_matrix(y_true, y_pred):
