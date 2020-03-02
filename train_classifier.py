@@ -202,6 +202,7 @@ def train_classifier(train_dataset, val_dataset):
             # validation set
             data_val = next(iter(val_dataset))
             val_loss, pred = validation(data_val['word_list'], data_val['label'])
+            pred = np.argmax(pred, axis=-1)
 
             confusion_matrix = create_confusion_matrix(y_true=data_val['label'].numpy(), y_pred=pred)
             mean_precision, mean_recall, mean_f1 = create_classification_report(y_true=data_val['label'].numpy(),
