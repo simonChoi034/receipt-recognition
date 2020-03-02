@@ -28,18 +28,18 @@ class RNNClassifier(tf.keras.Model):
     def __init__(self, num_class, name='rnn-classifier', **kwargs):
         super(RNNClassifier, self).__init__(name=name, **kwargs)
         self.rnn1 = Bidirectional(
-            GRU(64, return_sequences=True, recurrent_initializer='glorot_uniform'))
+            LSTM(512, return_sequences=True, recurrent_initializer='glorot_uniform', recurrent_dropout=0.2,
+                 dropout=0.2))
         self.rnn2 = Bidirectional(
-            GRU(128, return_sequences=True, recurrent_initializer='glorot_uniform'))
-        self.rnn3 = Bidirectional(
-            GRU(256, return_sequences=True, recurrent_initializer='glorot_uniform'))
+            LSTM(512, return_sequences=True, recurrent_initializer='glorot_uniform', recurrent_dropout=0.2,
+                 dropout=0.2))
         self.dense = TimeDistributed(Dense(num_class))
 
     def call(self, inputs, training=None, mask=None):
         # input shape = [batch_size, word_size, 64]
-        x = self.rnn1(inputs)  # shape = [batch_size, word_size, 128]
-        x = self.rnn2(x)  # shape = [batch_size, word_size, 256]
-        x = self.rnn3(x)  # shape = [batch_size, word_size, 512]
+        x = self.rnn1(inputs)  # shape = [batch_size, word_size, 1024]
+        x_rnn = self.rnn2(x)  # shape = [batch_size, word_size, 1024]
+        x = x + x_rnn
         x = self.dense(x)  # shape = [batch_size, word_size, num_class]
 
         return x
