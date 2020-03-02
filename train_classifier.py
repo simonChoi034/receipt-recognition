@@ -20,7 +20,7 @@ WORD_SIZE = 250
 CHAR_SIZE = 50
 EMBEDDING_DIM = 256
 WARMUP_EPOCHS = 2
-TRAIN_EPOCHS = 50
+TRAIN_EPOCHS = 500
 NUM_CLASS = 7
 CLASS_NAME = ["Don't care", "Merchant Name", "Merchant Phone Number", "Merchant Address", "Transaction Date",
               "Transaction Time", "Total"]
@@ -186,6 +186,10 @@ def train_classifier(dataset):
                 tf.summary.scalar("mean_recall", mean_recall, step=int(model_ckpt.step))
                 tf.summary.scalar("mean_f1", mean_f1, step=int(model_ckpt.step))
                 tf.summary.image("Confusion Matrix", confusion_matrix, step=int(model_ckpt.step))
+
+            save_path = model_manager.save()
+            print("Saved checkpoint for step {}: {}".format(int(model_ckpt.step), save_path))
+            print("training loss {:1.5f}".format(loss.numpy()))
 
         if loss < 1e-3 or int(model_ckpt.step) >= train_config['total_steps']:
             model.save('./saved_model/receipt_classifier')
