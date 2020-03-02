@@ -166,9 +166,12 @@ class ReceiptClassifyGenerator:
             data = json.load(json_file)
             return data['analyzeResult']
 
-    def pad_zero(self, array, num):
+    def crop_or_pad_zero(self, array, num):
         arr_len = len(array)
-        return np.pad(array, (0, num - arr_len), 'constant')
+        if arr_len < num:
+            return np.pad(array, (0, num - arr_len), 'constant')
+        else:
+            return array[:num]
 
     def transform_ascii(self, string):
         return [ord(c) for c in string if 0 <= ord(c) < 128]
@@ -178,9 +181,9 @@ class ReceiptClassifyGenerator:
         class_inx = [ele['class'] for ele in array]
 
         word_list = [self.transform_ascii(word) for word in word_list]
-        word_list = np.asarray([self.pad_zero(word, self.char_size) for word in word_list])
+        word_list = np.asarray([self.crop_or_pad_zero(word, self.char_size) for word in word_list])
 
-        class_inx = self.pad_zero(class_inx, self.word_size)
+        class_inx = self.crop_or_pad_zero(class_inx, self.word_size)
         word_len = len(word_list)
         zeros = np.zeros((self.word_size - word_len, self.char_size))
         word_list = np.concatenate([word_list, zeros], axis=0)

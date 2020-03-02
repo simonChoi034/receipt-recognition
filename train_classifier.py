@@ -7,22 +7,29 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import tensorflow as tf
+from sklearn.metrics import confusion_matrix
 from tensorflow.keras.losses import SparseCategoricalCrossentropy
 from tensorflow.keras.metrics import Accuracy
-from sklearn.metrics import confusion_matrix
 
 from dataset.dataset import ClassifierDataset
 from dataset.receipt.detector_dataset_generator import ReceiptClassifyGenerator
 from model.receipt_classifier import WordEmbedding, RNNClassifier
-from parameters import BATCH_SIZE, BUFFER_SIZE, PREFETCH_SIZE, LR_INIT
+from parameters import BATCH_SIZE, BUFFER_SIZE, PREFETCH_SIZE, LR_INIT, LR_END
 
 VOCAB_SIZE = 128
 WORD_SIZE = 250
 CHAR_SIZE = 100
 EMBEDDING_DIM = 256
+WARMUP_EPOCHS = 2
+TRAIN_EPOCHS = 50
 NUM_CLASS = 7
 CLASS_NAME = ["Don't care", "Merchant Name", "Merchant Phone Number", "Merchant Address", "Transaction Date",
               "Transaction Time", "Total"]
+
+train_config = {
+    'warmup_steps': WARMUP_EPOCHS,
+    'total_steps': TRAIN_EPOCHS
+}
 
 try:
     tf.enable_eager_execution()
@@ -58,6 +65,20 @@ embedding_layer_train_log_dir = 'logs/embedding_layer/' + current_time + '/train
 receipt_classifier_train_log_dir = 'logs/receipt_classifier/' + current_time + '/train'
 
 
+def update_learning_rate(step):
+    global_steps = step
+    warmup_steps = train_config['warmup_steps']
+    total_steps = train_config['total_steps']
+    if global_steps < warmup_steps:
+        lr = global_steps / warmup_steps * LR_INIT
+    else:
+        lr = LR_END + 0.5 * (LR_INIT - LR_END) * (
+            (1 + tf.cos((global_steps - warmup_steps) / (total_steps - warmup_steps) * np.pi))
+        )
+
+    optimizer.lr.assign(float(lr))
+
+
 @tf.function
 def train_embedding_layer_one_step(x, y):
     with tf.GradientTape() as tape:
@@ -87,13 +108,17 @@ def train_embedding_layer(dataset):
         loss, pred = train_embedding_layer_one_step(data['word_list'], data['word_list'])
         pred = np.argmax(pred.numpy(), axis=-1)  # shape = [batch_size, word_size, char_size]
 
+        update_learning_rate(int(embedding_layer_ckpt.step))
+
         embedding_layer_ckpt.step.assign_add(1)
 
         if int(embedding_layer_ckpt.step) % 100 == 0:
+            index = np.random.randint(0, 30)
             # tensorboard logging
-            y_true_string = ascii_to_string(data['word_list'].numpy()[0][0])
-            y_pred_string = ascii_to_string(pred[0][0])
+            y_true_string = ascii_to_string(data['word_list'].numpy()[0][index])
+            y_pred_string = ascii_to_string(pred[0][index])
             with train_summary_writer.as_default():
+                tf.summary.scalar("lr", optimizer.lr, step=int(embedding_layer_ckpt.step))
                 tf.summary.scalar("loss", loss, step=int(embedding_layer_ckpt.step))
                 tf.summary.text("Prediction", y_pred_string, step=int(embedding_layer_ckpt.step))
                 tf.summary.text("Ground Truth", y_true_string, step=int(embedding_layer_ckpt.step))
@@ -147,7 +172,7 @@ def train_classifier(dataset):
         loss, pred = train_classifier_one_step(data['word_list'], data['label'])
         pred = np.argmax(pred, axis=-1)
 
-        tf.print(loss)
+        update_learning_rate(int(model_ckpt.step))
 
         model_ckpt.step.assign_add(1)
 
@@ -156,6 +181,7 @@ def train_classifier(dataset):
             confusion_matrix = create_confusion_matrix(y_true=data['label'].numpy(), y_pred=pred)
 
             with train_summary_writer.as_default():
+                tf.summary.scalar("lr", optimizer.lr, step=int(model_ckpt.step))
                 tf.summary.scalar("loss", loss, step=int(model_ckpt.step))
                 tf.summary.scalar("Accuracy", accuracy.result().numpy(), step=int(model_ckpt.step))
                 tf.summary.image("Confusion Matrix", confusion_matrix, step=int(model_ckpt.step))
@@ -208,6 +234,10 @@ def main(args):
     )
 
     receipt_generator.set_dataset_info()
+
+    dataset_size = len(receipt_generator.document_lists)
+    train_config['warmup_steps'] = WARMUP_EPOCHS * dataset_size // args.batch_size
+    train_config['total_steps'] = TRAIN_EPOCHS * dataset_size // args.batch_size
 
     dataset_generator = ClassifierDataset(
         generator=receipt_generator,
