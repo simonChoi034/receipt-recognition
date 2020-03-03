@@ -60,6 +60,7 @@ model_manager = tf.train.CheckpointManager(model_ckpt, './checkpoints/receipt_cl
 # tensorboard config
 current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 embedding_layer_train_log_dir = 'logs/embedding_layer/' + current_time + '/train'
+embedding_layer_val_log_dir = 'logs/embedding_layer/' + current_time + '/val'
 receipt_classifier_train_log_dir = 'logs/receipt_classifier/' + current_time + '/train'
 receipt_classifier_val_log_dir = 'logs/receipt_classifier/' + current_time + '/val'
 
@@ -79,9 +80,8 @@ def update_learning_rate(step):
 
 
 @tf.function
-def validation(x, y):
-    embedding = embedding_layer(x)
-    pred = model(embedding)
+def embedding_layer_validation(x, y):
+    pred = embedding_layer(x, training=True)
     loss = loss_fn(y_true=y, y_pred=pred)
 
     return loss, pred
@@ -100,9 +100,10 @@ def train_embedding_layer_one_step(x, y):
     return loss, pred
 
 
-def train_embedding_layer(dataset):
+def train_embedding_layer(train_dataset, val_dataset):
     # setup tensorboard
     train_summary_writer = tf.summary.create_file_writer(embedding_layer_train_log_dir)
+    val_summary_writer = tf.summary.create_file_writer(embedding_layer_val_log_dir)
 
     # restore checkpoint
     embedding_layer_ckpt.restore(embedding_layer_manager.latest_checkpoint)
@@ -112,7 +113,7 @@ def train_embedding_layer(dataset):
     else:
         print("Initializing from scratch.")
 
-    for data in dataset:
+    for data in train_dataset:
         loss, pred = train_embedding_layer_one_step(data['word_list'], data['word_list'])
         pred = np.argmax(pred.numpy(), axis=-1)  # shape = [batch_size, word_size, char_size]
 
@@ -123,9 +124,22 @@ def train_embedding_layer(dataset):
         if int(embedding_layer_ckpt.step) % 100 == 0:
             index = np.random.randint(0, 30)
             # tensorboard logging
+            # train set
             y_true_string = ascii_to_string(data['word_list'].numpy()[0][index])
             y_pred_string = ascii_to_string(pred[0][index])
             with train_summary_writer.as_default():
+                tf.summary.scalar("lr", optimizer.lr, step=int(embedding_layer_ckpt.step))
+                tf.summary.scalar("loss", loss, step=int(embedding_layer_ckpt.step))
+                tf.summary.text("Prediction", y_pred_string, step=int(embedding_layer_ckpt.step))
+                tf.summary.text("Ground Truth", y_true_string, step=int(embedding_layer_ckpt.step))
+
+            # validation set
+            data_val = next(iter(val_dataset))
+            loss, pred = embedding_layer_validation(data_val['word_list'], data_val['word_list'])
+            pred = np.argmax(pred.numpy(), axis=-1)
+            y_true_string = ascii_to_string(data_val['word_list'].numpy()[0][index])
+            y_pred_string = ascii_to_string(pred[0][index])
+            with val_summary_writer.as_default():
                 tf.summary.scalar("lr", optimizer.lr, step=int(embedding_layer_ckpt.step))
                 tf.summary.scalar("loss", loss, step=int(embedding_layer_ckpt.step))
                 tf.summary.text("Prediction", y_pred_string, step=int(embedding_layer_ckpt.step))
@@ -140,6 +154,15 @@ def train_embedding_layer(dataset):
             print("Training finished")
             print("Final loss {:1.5f}".format(loss.numpy()))
             return
+
+
+@tf.function
+def model_validation(x, y):
+    embedding = embedding_layer(x)
+    pred = model(embedding)
+    loss = loss_fn(y_true=y, y_pred=pred)
+
+    return loss, pred
 
 
 @tf.function
@@ -188,32 +211,41 @@ def train_classifier(train_dataset, val_dataset):
         if int(model_ckpt.step) % 10 == 0:
             # training set
             confusion_matrix = create_confusion_matrix(y_true=data['label'].numpy(), y_pred=pred)
-            mean_precision, mean_recall, mean_f1 = create_classification_report(y_true=data['label'].numpy(),
-                                                                                y_pred=pred)
+            report, mean_precision, mean_recall, mean_f1 = create_classification_report(y_true=data['label'].numpy(),
+                                                                                        y_pred=pred)
 
             with train_summary_writer.as_default():
                 tf.summary.scalar("lr", optimizer.lr, step=int(model_ckpt.step))
                 tf.summary.scalar("loss", train_loss, step=int(model_ckpt.step))
-                tf.summary.scalar("mean_precision", mean_precision, step=int(model_ckpt.step))
-                tf.summary.scalar("mean_recall", mean_recall, step=int(model_ckpt.step))
-                tf.summary.scalar("mean_f1", mean_f1, step=int(model_ckpt.step))
+                for name in CLASS_NAME:
+                    tf.summary.scalar("{} precision".format(name), report[name]['precision'], step=int(model_ckpt.step))
+                    tf.summary.scalar("{} recall".format(name), report[name]['recall'], step=int(model_ckpt.step))
+                    tf.summary.scalar("{} f1-score".format(name), report[name]['f1-score'], step=int(model_ckpt.step))
+                tf.summary.scalar("Mean precision", mean_precision, step=int(model_ckpt.step))
+                tf.summary.scalar("Mean recall", mean_recall, step=int(model_ckpt.step))
+                tf.summary.scalar("Mean f1-score", mean_f1, step=int(model_ckpt.step))
                 tf.summary.image("Confusion Matrix", confusion_matrix, step=int(model_ckpt.step))
 
             # validation set
             data_val = next(iter(val_dataset))
-            val_loss, pred = validation(data_val['word_list'], data_val['label'])
+            val_loss, pred = model_validation(data_val['word_list'], data_val['label'])
             pred = np.argmax(pred, axis=-1)
 
             confusion_matrix = create_confusion_matrix(y_true=data_val['label'].numpy(), y_pred=pred)
-            mean_precision, mean_recall, mean_f1 = create_classification_report(y_true=data_val['label'].numpy(),
-                                                                                y_pred=pred)
+            report, mean_precision, mean_recall, mean_f1 = create_classification_report(
+                y_true=data_val['label'].numpy(),
+                y_pred=pred)
 
             with val_summary_writer.as_default():
                 tf.summary.scalar("lr", optimizer.lr, step=int(model_ckpt.step))
                 tf.summary.scalar("loss", val_loss, step=int(model_ckpt.step))
-                tf.summary.scalar("mean_precision", mean_precision, step=int(model_ckpt.step))
-                tf.summary.scalar("mean_recall", mean_recall, step=int(model_ckpt.step))
-                tf.summary.scalar("mean_f1", mean_f1, step=int(model_ckpt.step))
+                for name in CLASS_NAME:
+                    tf.summary.scalar("{} precision".format(name), report[name]['precision'], step=int(model_ckpt.step))
+                    tf.summary.scalar("{} recall".format(name), report[name]['recall'], step=int(model_ckpt.step))
+                    tf.summary.scalar("{} f1-score".format(name), report[name]['f1-score'], step=int(model_ckpt.step))
+                tf.summary.scalar("Mean precision", mean_precision, step=int(model_ckpt.step))
+                tf.summary.scalar("Mean recall", mean_recall, step=int(model_ckpt.step))
+                tf.summary.scalar("Mean f1-score", mean_f1, step=int(model_ckpt.step))
                 tf.summary.image("Confusion Matrix", confusion_matrix, step=int(model_ckpt.step))
 
             save_path = model_manager.save()
@@ -236,7 +268,7 @@ def create_classification_report(y_true, y_pred):
     mean_recall = np.mean([report[name]['recall'] for name in CLASS_NAME])
     mean_f1 = np.mean([report[name]['f1-score'] for name in CLASS_NAME])
 
-    return mean_precision, mean_recall, mean_f1
+    return report, mean_precision, mean_recall, mean_f1
 
 
 def create_confusion_matrix(y_true, y_pred):
@@ -311,7 +343,7 @@ def main(args):
     val_dataset = val_dataset_generator.create_dataset()
 
     if args.emb:
-        train_embedding_layer(dataset=train_dataset)
+        train_embedding_layer(train_dataset=train_dataset, val_dataset=val_dataset)
     else:
         train_classifier(train_dataset=train_dataset, val_dataset=val_dataset)
 
