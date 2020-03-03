@@ -179,8 +179,8 @@ class ReceiptClassifyGenerator:
         return [ord(c) for c in string if 0 <= ord(c) < 128]
 
     def transform_data(self, array):
-        word_list = [ele['text'] for ele in array]
-        class_inx = [ele['class'] for ele in array]
+        word_list = [str(ele['text']).lower() for ele in array]
+        class_inx = [int(ele['class']) for ele in array]
 
         word_list = [self.transform_ascii(word) for word in word_list]
         word_list = np.asarray([self.crop_or_pad_zero(word, self.char_size) for word in word_list])
