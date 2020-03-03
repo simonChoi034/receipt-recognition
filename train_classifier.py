@@ -197,9 +197,6 @@ def train_classifier(train_dataset, val_dataset):
     else:
         print("Initializing from scratch.")
 
-    # set the word embedding layer to non-trainable
-    embedding_layer.trainable = False
-
     for data in train_dataset:
         train_loss, pred = train_classifier_one_step(data['word_list'], data['label'])
         pred = np.argmax(pred, axis=-1)
