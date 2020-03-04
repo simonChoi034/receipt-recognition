@@ -17,10 +17,10 @@ from parameters import BATCH_SIZE, BUFFER_SIZE, PREFETCH_SIZE, LR_INIT, LR_END
 
 VOCAB_SIZE = 128
 WORD_SIZE = 250
-CHAR_SIZE = 50
+CHAR_SIZE = 30
 EMBEDDING_DIM = 256
 WARMUP_EPOCHS = 2
-TRAIN_EPOCHS = 100
+TRAIN_EPOCHS = 10000
 NUM_CLASS = 7
 CLASS_NAME = ["Don't care", "Merchant Name", "Merchant Phone Number", "Merchant Address", "Transaction Date",
               "Transaction Time", "Total"]
@@ -149,7 +149,7 @@ def train_embedding_layer(train_dataset, val_dataset):
             print("Saved checkpoint for step {}: {}".format(int(embedding_layer_ckpt.step), save_path))
             print("training loss {:1.5f}".format(loss.numpy()))
 
-        if loss < 2e-3 or int(embedding_layer_ckpt.step) >= train_config['total_steps']:
+        if loss < 1e-3 or int(embedding_layer_ckpt.step) >= train_config['total_steps']:
             embedding_layer.save('./saved_model/embedding_layer')
             print("Training finished")
             print("Final loss {:1.5f}".format(loss.numpy()))
