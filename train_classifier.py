@@ -40,18 +40,18 @@ print("Num GPUs Available: ", len(physical_devices))
 if len(physical_devices) > 0:
     tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
-embedding_layer = WordEmbedding(
+model = RNNClassifier(
+    num_class=NUM_CLASS,
     vocab_size=VOCAB_SIZE,
     embedding_dim=EMBEDDING_DIM,
     word_size=WORD_SIZE,
     char_size=CHAR_SIZE
 )
-model = RNNClassifier(num_class=NUM_CLASS)
 optimizer = tf.keras.optimizers.Adam(lr=LR_INIT, clipvalue=0.5)
 loss_fn = SparseCategoricalCrossentropy(from_logits=True)
 
 # checkpoint manager
-embedding_layer_ckpt = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optimizer, net=embedding_layer)
+embedding_layer_ckpt = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optimizer, net=model)
 embedding_layer_manager = tf.train.CheckpointManager(embedding_layer_ckpt, './checkpoints/embedding_layer_train.tf',
                                                      max_to_keep=5)
 model_ckpt = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optimizer, net=model)
@@ -81,7 +81,7 @@ def update_learning_rate(step):
 
 @tf.function
 def embedding_layer_validation(x, y):
-    pred = embedding_layer(x, training=True)
+    pred = model(x, training=True)
     loss = loss_fn(y_true=y, y_pred=pred)
 
     return loss, pred
@@ -90,12 +90,12 @@ def embedding_layer_validation(x, y):
 @tf.function
 def train_embedding_layer_one_step(x, y):
     with tf.GradientTape() as tape:
-        pred = embedding_layer(x, training=True)
+        pred = model(x, training=True)
         loss = loss_fn(y_true=y, y_pred=pred)
 
-    grads = tape.gradient(loss, embedding_layer.trainable_variables)
+    grads = tape.gradient(loss, model.trainable_variables)
     optimizer.apply_gradients(
-        zip(grads, embedding_layer.trainable_variables))
+        zip(grads, model.trainable_variables))
 
     return loss, pred
 
@@ -150,7 +150,7 @@ def train_embedding_layer(train_dataset, val_dataset):
             print("training loss {:1.5f}".format(loss.numpy()))
 
         if loss < 1e-3 or int(embedding_layer_ckpt.step) >= train_config['total_steps']:
-            embedding_layer.save('./saved_model/embedding_layer')
+            model.save('./saved_model/embedding_layer')
             print("Training finished")
             print("Final loss {:1.5f}".format(loss.numpy()))
             return
@@ -158,8 +158,7 @@ def train_embedding_layer(train_dataset, val_dataset):
 
 @tf.function
 def model_validation(x, y):
-    embedding = embedding_layer(x)
-    pred = model(embedding)
+    pred = model(x)
     loss = loss_fn(y_true=y, y_pred=pred)
 
     return loss, pred
@@ -168,8 +167,7 @@ def model_validation(x, y):
 @tf.function
 def train_classifier_one_step(x, y):
     with tf.GradientTape() as tape:
-        embedding = embedding_layer(x)
-        pred = model(embedding)
+        pred = model(x)
         loss = loss_fn(y_true=y, y_pred=pred)
 
     grads = tape.gradient(loss, model.trainable_variables)
@@ -181,9 +179,8 @@ def train_classifier_one_step(x, y):
 
 def train_classifier(train_dataset, val_dataset):
     # load embedding layer
-    global embedding_layer
-    embedding_layer = tf.keras.models.load_model('saved_model/embedding_layer')
-    embedding_layer.trainable = False
+    global model
+    model = tf.keras.models.load_model('saved_model/embedding_layer')
 
     # setup tensorboard
     train_summary_writer = tf.summary.create_file_writer(receipt_classifier_train_log_dir)
