@@ -47,6 +47,12 @@ model = RNNClassifier(
     word_size=WORD_SIZE,
     char_size=CHAR_SIZE
 )
+
+try:
+    model.load_weights('./saved_weights/embedding_layer')
+except:
+    pass
+
 optimizer = tf.keras.optimizers.Adam(lr=LR_INIT, clipvalue=0.5)
 loss_fn = SparseCategoricalCrossentropy(from_logits=True)
 
@@ -150,6 +156,7 @@ def train_embedding_layer(train_dataset, val_dataset):
             print("training loss {:1.5f}".format(loss.numpy()))
 
         if loss < 1e-3 or int(embedding_layer_ckpt.step) >= train_config['total_steps']:
+            model.save_weights('./saved_weights/embedding_layer')
             model.save('./saved_model/embedding_layer')
             print("Training finished")
             print("Final loss {:1.5f}".format(loss.numpy()))
@@ -178,10 +185,6 @@ def train_classifier_one_step(x, y):
 
 
 def train_classifier(train_dataset, val_dataset):
-    # load embedding layer
-    global model
-    model = tf.keras.models.load_model('saved_model/embedding_layer')
-
     # setup tensorboard
     train_summary_writer = tf.summary.create_file_writer(receipt_classifier_train_log_dir)
     val_summary_writer = tf.summary.create_file_writer(receipt_classifier_val_log_dir)
