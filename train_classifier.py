@@ -12,7 +12,7 @@ from tensorflow.keras.losses import SparseCategoricalCrossentropy
 
 from dataset.dataset import ClassifierDataset
 from dataset.receipt.detector_dataset_generator import ReceiptClassifyGenerator
-from model.receipt_classifier import WordEmbedding, RNNClassifier
+from model.receipt_classifier import RNNClassifier
 from parameters import BATCH_SIZE, BUFFER_SIZE, PREFETCH_SIZE, LR_INIT, LR_END
 
 VOCAB_SIZE = 128
@@ -49,9 +49,10 @@ model = RNNClassifier(
 )
 
 try:
+    print("Load weights for embedding layer")
     model.load_weights('./saved_weights/embedding_layer')
 except:
-    pass
+    print("No weights for embedding layer")
 
 optimizer = tf.keras.optimizers.Adam(lr=LR_INIT, clipvalue=0.5)
 loss_fn = SparseCategoricalCrossentropy(from_logits=True)
@@ -166,7 +167,8 @@ def train_embedding_layer(train_dataset, val_dataset):
 @tf.function
 def model_validation(x, y):
     pred = model(x)
-    loss = loss_fn(y_true=y, y_pred=pred)
+    loss = model.crf.get_loss(y_true=y, y_pred=pred)
+    loss = tf.reduce_mean(loss)
 
     return loss, pred
 
@@ -175,7 +177,8 @@ def model_validation(x, y):
 def train_classifier_one_step(x, y):
     with tf.GradientTape() as tape:
         pred = model(x)
-        loss = loss_fn(y_true=y, y_pred=pred)
+        loss = model.crf.get_loss(y_true=y, y_pred=pred)
+        loss = tf.reduce_mean(loss)
 
     grads = tape.gradient(loss, model.trainable_variables)
     optimizer.apply_gradients(
@@ -198,52 +201,20 @@ def train_classifier(train_dataset, val_dataset):
         print("Initializing from scratch.")
 
     for data in train_dataset:
-        train_loss, pred = train_classifier_one_step(data['word_list'], data['label'])
-        pred = np.argmax(pred, axis=-1)
+        train_loss, preds = train_classifier_one_step(data['word_list'], data['label'])
 
         update_learning_rate(int(model_ckpt.step))
 
         model_ckpt.step.assign_add(1)
 
         if int(model_ckpt.step) % 10 == 0:
-            # training set
-            confusion_matrix = create_confusion_matrix(y_true=data['label'].numpy(), y_pred=pred)
-            report, mean_precision, mean_recall, mean_f1 = create_classification_report(y_true=data['label'].numpy(),
-                                                                                        y_pred=pred)
-
-            with train_summary_writer.as_default():
-                tf.summary.scalar("lr", optimizer.lr, step=int(model_ckpt.step))
-                tf.summary.scalar("loss", train_loss, step=int(model_ckpt.step))
-                for name in CLASS_NAME:
-                    tf.summary.scalar("{} precision".format(name), report[name]['precision'], step=int(model_ckpt.step))
-                    tf.summary.scalar("{} recall".format(name), report[name]['recall'], step=int(model_ckpt.step))
-                    tf.summary.scalar("{} f1-score".format(name), report[name]['f1-score'], step=int(model_ckpt.step))
-                tf.summary.scalar("Mean precision", mean_precision, step=int(model_ckpt.step))
-                tf.summary.scalar("Mean recall", mean_recall, step=int(model_ckpt.step))
-                tf.summary.scalar("Mean f1-score", mean_f1, step=int(model_ckpt.step))
-                tf.summary.image("Confusion Matrix", confusion_matrix, step=int(model_ckpt.step))
+            logging(train_summary_writer, preds, data['label'], train_loss)
 
             # validation set
             data_val = next(iter(val_dataset))
-            val_loss, pred = model_validation(data_val['word_list'], data_val['label'])
-            pred = np.argmax(pred, axis=-1)
+            val_loss, preds = model_validation(data_val['word_list'], data_val['label'])
 
-            confusion_matrix = create_confusion_matrix(y_true=data_val['label'].numpy(), y_pred=pred)
-            report, mean_precision, mean_recall, mean_f1 = create_classification_report(
-                y_true=data_val['label'].numpy(),
-                y_pred=pred)
-
-            with val_summary_writer.as_default():
-                tf.summary.scalar("lr", optimizer.lr, step=int(model_ckpt.step))
-                tf.summary.scalar("loss", val_loss, step=int(model_ckpt.step))
-                for name in CLASS_NAME:
-                    tf.summary.scalar("{} precision".format(name), report[name]['precision'], step=int(model_ckpt.step))
-                    tf.summary.scalar("{} recall".format(name), report[name]['recall'], step=int(model_ckpt.step))
-                    tf.summary.scalar("{} f1-score".format(name), report[name]['f1-score'], step=int(model_ckpt.step))
-                tf.summary.scalar("Mean precision", mean_precision, step=int(model_ckpt.step))
-                tf.summary.scalar("Mean recall", mean_recall, step=int(model_ckpt.step))
-                tf.summary.scalar("Mean f1-score", mean_f1, step=int(model_ckpt.step))
-                tf.summary.image("Confusion Matrix", confusion_matrix, step=int(model_ckpt.step))
+            logging(val_summary_writer, preds, data_val['label'], val_loss)
 
             save_path = model_manager.save()
             print("Saved checkpoint for step {}: {}".format(int(model_ckpt.step), save_path))
@@ -254,6 +225,24 @@ def train_classifier(train_dataset, val_dataset):
             print("Training finished")
             print("Final loss {:1.5f}".format(train_loss.numpy()))
             return
+
+
+def logging(writer, preds, labels, loss):
+    # training set
+    confusion_matrix = create_confusion_matrix(y_true=labels, y_pred=preds)
+    report, mean_precision, mean_recall, mean_f1 = create_classification_report(y_true=labels, y_pred=preds)
+
+    with writer.as_default():
+        tf.summary.scalar("lr", optimizer.lr, step=int(model_ckpt.step))
+        tf.summary.scalar("loss", loss, step=int(model_ckpt.step))
+        for name in CLASS_NAME:
+            tf.summary.scalar("{} precision".format(name), report[name]['precision'], step=int(model_ckpt.step))
+            tf.summary.scalar("{} recall".format(name), report[name]['recall'], step=int(model_ckpt.step))
+            tf.summary.scalar("{} f1-score".format(name), report[name]['f1-score'], step=int(model_ckpt.step))
+        tf.summary.scalar("Mean precision", mean_precision, step=int(model_ckpt.step))
+        tf.summary.scalar("Mean recall", mean_recall, step=int(model_ckpt.step))
+        tf.summary.scalar("Mean f1-score", mean_f1, step=int(model_ckpt.step))
+        tf.summary.image("Confusion Matrix", confusion_matrix, step=int(model_ckpt.step))
 
 
 def create_classification_report(y_true, y_pred):

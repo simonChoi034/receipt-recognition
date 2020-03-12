@@ -1,5 +1,6 @@
 import tensorflow as tf
 from tensorflow.keras.layers import Reshape, Bidirectional, LSTM, Dense, GRU, Embedding, TimeDistributed, RepeatVector, Layer
+from model.crf import CRF
 
 from model.resnet import Resnet18
 
@@ -31,6 +32,7 @@ class RNNClassifier(tf.keras.Model):
         self.rnn1 = Bidirectional(
             LSTM(50, return_sequences=True, recurrent_initializer='glorot_uniform'))
         self.dense = TimeDistributed(Dense(num_class))
+        self.crf = CRF(num_class)
 
     def call(self, inputs, training=None, mask=None):
         # input shape = [batch_size, word_size, char_size]
@@ -42,6 +44,7 @@ class RNNClassifier(tf.keras.Model):
 
         x = self.rnn1(x)  # shape = [batch_size, word_size, 100]
         x = self.dense(x)  # shape = [batch_size, word_size, num_class]
+        x = self.crf(x)
 
         return x
 
