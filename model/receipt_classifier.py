@@ -31,7 +31,7 @@ class RNNClassifier(tf.keras.Model):
         super(RNNClassifier, self).__init__(name=name, **kwargs)
         self.embedding = WordEmbedding(vocab_size, embedding_dim, word_size, char_size)
         self.rnn1 = Bidirectional(
-            LSTM(16, return_sequences=True, kernel_initializer=l2(), recurrent_regularizer=l2(), dropout=0.2,
+            LSTM(10, return_sequences=True, kernel_regularizer=l2(), recurrent_regularizer=l2(), dropout=0.2,
                  recurrent_dropout=0.2))
         self.dense = TimeDistributed(Dense(num_class))
         self.crf = CRF(num_class)
