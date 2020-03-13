@@ -20,10 +20,9 @@ WORD_SIZE = 250
 CHAR_SIZE = 30
 EMBEDDING_DIM = 256
 WARMUP_EPOCHS = 2
-TRAIN_EPOCHS = 10000
-NUM_CLASS = 7
-CLASS_NAME = ["Don't care", "Merchant Name", "Merchant Phone Number", "Merchant Address", "Transaction Date",
-              "Transaction Time", "Total"]
+TRAIN_EPOCHS = 1000
+NUM_CLASS = 5
+CLASS_NAME = ["Don't care", "Merchant Name", "Merchant Address", "Transaction Date", "Total"]
 
 train_config = {
     'warmup_steps': WARMUP_EPOCHS,

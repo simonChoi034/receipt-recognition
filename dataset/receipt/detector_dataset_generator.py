@@ -9,11 +9,9 @@ import numpy as np
 
 class_ids = {
     "MerchantName": 1,
-    "MerchantPhoneNumber": 2,
-    "MerchantAddress": 3,
-    "TransactionDate": 4,
-    "TransactionTime": 5,
-    "Total": 6
+    "MerchantAddress": 2,
+    "TransactionDate": 3,
+    "Total": 4
 }
 
 
