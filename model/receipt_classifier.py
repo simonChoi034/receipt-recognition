@@ -1,7 +1,8 @@
 import tensorflow as tf
-from tensorflow.keras.layers import Reshape, Bidirectional, LSTM, Dense, GRU, Embedding, TimeDistributed, RepeatVector, Layer
-from model.crf import CRF
+from tensorflow.keras.layers import Reshape, Bidirectional, LSTM, Dense, Embedding, TimeDistributed, RepeatVector, Layer
+from tensorflow.keras.regularizers import l2
 
+from model.crf import CRF
 from model.resnet import Resnet18
 
 
@@ -30,16 +31,17 @@ class RNNClassifier(tf.keras.Model):
         super(RNNClassifier, self).__init__(name=name, **kwargs)
         self.embedding = WordEmbedding(vocab_size, embedding_dim, word_size, char_size)
         self.rnn1 = Bidirectional(
-            LSTM(50, return_sequences=True, recurrent_initializer='glorot_uniform'))
+            LSTM(16, return_sequences=True, kernel_initializer=l2(), recurrent_regularizer=l2(), dropout=0.2,
+                 recurrent_dropout=0.2))
         self.dense = TimeDistributed(Dense(num_class))
         self.crf = CRF(num_class)
 
-    def call(self, inputs, training=None, mask=None):
+    def call(self, inputs, training=None, training_embedding=None, mask=None):
         # input shape = [batch_size, word_size, char_size]
-        x = self.embedding(inputs, training=training)
+        x = self.embedding(inputs, training=training_embedding)
 
         # training embedding layer
-        if training:
+        if training_embedding:
             return x
 
         x = self.rnn1(x)  # shape = [batch_size, word_size, 100]
@@ -56,10 +58,11 @@ class WordEmbedding(Layer):
         self.word_size = word_size
         self.char_size = char_size
         self.vocab_size = vocab_size
+        self.encode_dim = 16
         self.embedding = Embedding(vocab_size, embedding_dim)
-        self.encoder1 = LSTM(64, return_sequences=False, recurrent_initializer='glorot_uniform')
+        self.encoder1 = LSTM(self.encode_dim, return_sequences=False)
         self.repeat_vector = RepeatVector(char_size)
-        self.decoder1 = LSTM(64, return_sequences=True, recurrent_initializer='glorot_uniform')
+        self.decoder1 = LSTM(self.encode_dim, return_sequences=True)
         self.dense = TimeDistributed(Dense(vocab_size))
 
     def call(self, inputs, training=None, mask=None):
@@ -67,15 +70,15 @@ class WordEmbedding(Layer):
         # input shape: [batch_size * word_size, char_size]
         x = tf.reshape(inputs, (-1, self.char_size))
         x = self.embedding(x)  # shape = [batch_size * word_size, char_size, embedding_dim]
-        x = self.encoder1(x)  # shape = [batch_size * word_size, char_size, 64]
+        x = self.encoder1(x)  # shape = [batch_size * word_size, char_size, encode_dim]
 
         if not training:
-            # output shape = [batch_size, word_size, 64]
-            x = tf.reshape(x, (-1, self.word_size, 64))
+            # output shape = [batch_size, word_size, encode_dim]
+            x = tf.reshape(x, (-1, self.word_size, self.encode_dim))
             return x
 
-        x = self.repeat_vector(x)  # shape = [batch_size * word_size, char_size, 64]
-        x = self.decoder1(x)  # shape = [batch_size * word_size, char_size, 64]
+        x = self.repeat_vector(x)  # shape = [batch_size * word_size, char_size, encode_dim]
+        x = self.decoder1(x)  # shape = [batch_size * word_size, char_size, encode_dim]
         x = self.dense(x)  # shape = [batch_size * word_size, char_size, vocab_size]
 
         x = tf.reshape(x, (-1, self.word_size, self.char_size, self.vocab_size))

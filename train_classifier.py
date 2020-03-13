@@ -87,7 +87,7 @@ def update_learning_rate(step):
 
 @tf.function
 def embedding_layer_validation(x, y):
-    pred = model(x, training=True)
+    pred = model(x, training_embedding=True)
     loss = loss_fn(y_true=y, y_pred=pred)
 
     return loss, pred
@@ -96,7 +96,7 @@ def embedding_layer_validation(x, y):
 @tf.function
 def train_embedding_layer_one_step(x, y):
     with tf.GradientTape() as tape:
-        pred = model(x, training=True)
+        pred = model(x, training_embedding=True)
         loss = loss_fn(y_true=y, y_pred=pred)
 
     grads = tape.gradient(loss, model.trainable_variables)
@@ -178,8 +178,10 @@ def train_classifier_one_step(x, y):
         pred = model(x)
         loss = model.crf.get_loss(y_true=y, y_pred=pred)
         loss = tf.reduce_mean(loss)
+        regularization_loss = tf.reduce_sum(model.losses)
+        total_loss = loss + regularization_loss
 
-    grads = tape.gradient(loss, model.trainable_variables)
+    grads = tape.gradient(total_loss, model.trainable_variables)
     optimizer.apply_gradients(
         zip(grads, model.trainable_variables))
 
