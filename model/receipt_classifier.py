@@ -31,9 +31,13 @@ class RNNClassifier(tf.keras.Model):
         super(RNNClassifier, self).__init__(name=name, **kwargs)
         self.embedding = WordEmbedding(vocab_size, embedding_dim, word_size, char_size)
         self.rnn1 = Bidirectional(
-            LSTM(10, return_sequences=True, kernel_regularizer=l2(), recurrent_regularizer=l2(), dropout=0.2,
+            LSTM(num_class, return_sequences=True, activation='tanh', kernel_regularizer=l2(),
+                 recurrent_regularizer=l2(), dropout=0.2,
                  recurrent_dropout=0.2))
-        self.dense = TimeDistributed(Dense(num_class))
+        self.rnn2 = Bidirectional(
+            LSTM(num_class, return_sequences=True, activation='softmax', kernel_regularizer=l2(),
+                 recurrent_regularizer=l2(), dropout=0.2,
+                 recurrent_dropout=0.2))
         self.crf = CRF(num_class)
 
     def call(self, inputs, training=None, training_embedding=None, mask=None):
@@ -45,7 +49,7 @@ class RNNClassifier(tf.keras.Model):
             return x
 
         x = self.rnn1(x)  # shape = [batch_size, word_size, 100]
-        x = self.dense(x)  # shape = [batch_size, word_size, num_class]
+        x = self.rnn2(x)  # shape = [batch_size, word_size, num_class]
         x = self.crf(x)
 
         return x
@@ -60,9 +64,9 @@ class WordEmbedding(Layer):
         self.vocab_size = vocab_size
         self.encode_dim = 16
         self.embedding = Embedding(vocab_size, embedding_dim)
-        self.encoder1 = LSTM(self.encode_dim, return_sequences=False)
+        self.encoder1 = LSTM(self.encode_dim, return_sequences=False, recurrent_initializer='glorot_uniform')
         self.repeat_vector = RepeatVector(char_size)
-        self.decoder1 = LSTM(self.encode_dim, return_sequences=True)
+        self.decoder1 = LSTM(self.encode_dim, return_sequences=True, recurrent_initializer='glorot_uniform')
         self.dense = TimeDistributed(Dense(vocab_size))
 
     def call(self, inputs, training=None, mask=None):

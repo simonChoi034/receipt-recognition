@@ -53,7 +53,7 @@ try:
 except:
     print("No weights for embedding layer")
 
-optimizer = tf.keras.optimizers.Adam(lr=LR_INIT, clipvalue=0.5)
+optimizer = tf.keras.optimizers.Adam(lr=LR_INIT)
 loss_fn = SparseCategoricalCrossentropy(from_logits=True)
 
 # checkpoint manager
