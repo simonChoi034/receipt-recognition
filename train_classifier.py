@@ -18,7 +18,7 @@ from parameters import BATCH_SIZE, BUFFER_SIZE, PREFETCH_SIZE, LR_INIT, LR_END
 VOCAB_SIZE = 128
 WORD_SIZE = 250
 CHAR_SIZE = 30
-EMBEDDING_DIM = 256
+EMBEDDING_DIM = 64
 WARMUP_EPOCHS = 10
 TRAIN_EPOCHS = 1000
 NUM_CLASS = 5
@@ -157,7 +157,6 @@ def train_embedding_layer(train_dataset, val_dataset):
 
         if loss < 1e-3 or int(embedding_layer_ckpt.step) >= train_config['total_steps']:
             model.save_weights('./saved_weights/embedding_layer')
-            model.save('./saved_model/embedding_layer')
             print("Training finished")
             print("Final loss {:1.5f}".format(loss.numpy()))
             return
@@ -310,8 +309,9 @@ def main(args):
     val_receipt_generator.set_dataset_info()
 
     dataset_size = len(train_receipt_generator.document_lists)
-    train_config['warmup_steps'] = WARMUP_EPOCHS * dataset_size // args.batch_size
-    train_config['total_steps'] = TRAIN_EPOCHS * dataset_size // args.batch_size
+    warmup_steps = WARMUP_EPOCHS * dataset_size // args.batch_size
+    total_steps = TRAIN_EPOCHS * dataset_size // args.batch_size
+    set_training_config(warmup_steps, total_steps)
 
     train_dataset_generator = ClassifierDataset(
         generator=train_receipt_generator,
@@ -332,7 +332,16 @@ def main(args):
     if args.emb:
         train_embedding_layer(train_dataset=train_dataset, val_dataset=val_dataset)
     else:
+        train_embedding_layer(train_dataset=train_dataset, val_dataset=val_dataset)
+
+        # reset training config
+        set_training_config(warmup_steps, total_steps)
         train_classifier(train_dataset=train_dataset, val_dataset=val_dataset)
+
+
+def set_training_config(warmup_steps, total_steps):
+    train_config['warmup_steps'] = warmup_steps
+    train_config['total_steps'] = total_steps
 
 
 if __name__ == '__main__':

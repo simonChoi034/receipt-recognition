@@ -1,5 +1,6 @@
 import tensorflow as tf
-from tensorflow.keras.layers import Reshape, Bidirectional, LSTM, Dense, Embedding, TimeDistributed, RepeatVector, Layer
+from tensorflow.keras.layers import Reshape, Bidirectional, LSTM, Dense, GRU, Embedding, TimeDistributed, RepeatVector, \
+    Layer
 from tensorflow.keras.regularizers import l2
 
 from model.crf import CRF
@@ -31,13 +32,13 @@ class RNNClassifier(tf.keras.Model):
         super(RNNClassifier, self).__init__(name=name, **kwargs)
         self.embedding = WordEmbedding(vocab_size, embedding_dim, word_size, char_size)
         self.rnn1 = Bidirectional(
-            LSTM(num_class, return_sequences=True, activation='tanh', kernel_regularizer=l2(),
-                 recurrent_regularizer=l2(), dropout=0.2,
-                 recurrent_dropout=0.2))
+            GRU(32, return_sequences=True, activation='tanh', kernel_regularizer=l2(),
+                recurrent_regularizer=l2(), dropout=0.2,
+                recurrent_dropout=0.2), merge_mode='sum')
         self.rnn2 = Bidirectional(
-            LSTM(num_class, return_sequences=True, activation='softmax', kernel_regularizer=l2(),
-                 recurrent_regularizer=l2(), dropout=0.2,
-                 recurrent_dropout=0.2))
+            GRU(num_class, return_sequences=True, activation='softmax', kernel_regularizer=l2(),
+                recurrent_regularizer=l2(), dropout=0.2,
+                recurrent_dropout=0.2), merge_mode='sum')
         self.crf = CRF(num_class)
 
     def call(self, inputs, training=None, training_embedding=None, mask=None):
@@ -48,7 +49,7 @@ class RNNClassifier(tf.keras.Model):
         if training_embedding:
             return x
 
-        x = self.rnn1(x)  # shape = [batch_size, word_size, 100]
+        x = self.rnn1(x)  # shape = [batch_size, word_size, num_class]
         x = self.rnn2(x)  # shape = [batch_size, word_size, num_class]
         x = self.crf(x)
 
@@ -62,7 +63,7 @@ class WordEmbedding(Layer):
         self.word_size = word_size
         self.char_size = char_size
         self.vocab_size = vocab_size
-        self.encode_dim = 16
+        self.encode_dim = 32
         self.embedding = Embedding(vocab_size, embedding_dim)
         self.encoder1 = LSTM(self.encode_dim, return_sequences=False, recurrent_initializer='glorot_uniform')
         self.repeat_vector = RepeatVector(char_size)
