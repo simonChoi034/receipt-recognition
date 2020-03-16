@@ -111,10 +111,9 @@ def train_embedding_layer(train_dataset, val_dataset):
     train_summary_writer = tf.summary.create_file_writer(embedding_layer_train_log_dir)
     val_summary_writer = tf.summary.create_file_writer(embedding_layer_val_log_dir)
 
-    # restore checkpoint
-    embedding_layer_ckpt.restore(embedding_layer_manager.latest_checkpoint)
-
     if embedding_layer_manager.latest_checkpoint:
+        # restore checkpoint
+        embedding_layer_ckpt.restore(embedding_layer_manager.latest_checkpoint)
         print("Restored from {}".format(embedding_layer_manager.latest_checkpoint))
     else:
         print("Initializing from scratch.")
@@ -192,10 +191,9 @@ def train_classifier(train_dataset, val_dataset):
     train_summary_writer = tf.summary.create_file_writer(receipt_classifier_train_log_dir)
     val_summary_writer = tf.summary.create_file_writer(receipt_classifier_val_log_dir)
 
-    # restore checkpoint
-    model_ckpt.restore(model_manager.latest_checkpoint)
-
     if model_manager.latest_checkpoint:
+        # restore checkpoint
+        model_ckpt.restore(model_manager.latest_checkpoint)
         print("Restored from {}".format(model_manager.latest_checkpoint))
     else:
         print("Initializing from scratch.")
