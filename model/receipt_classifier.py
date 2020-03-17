@@ -55,7 +55,7 @@ class CnnEmbedding(Layer):
             kernel_size=(char_size, 1),
             padding='valid'
         )
-        self.max_pool = MaxPool2D(pool_size=(char_size, 0))
+        self.max_pool = MaxPool2D(pool_size=(char_size, 1))
         self.padding = ZeroPadding2D(padding=(1, 0))
         self.dropout = Dropout(0.5)
 
