@@ -1,6 +1,6 @@
 import tensorflow as tf
 from tensorflow.keras.layers import Bidirectional, LSTM, Dense, GRU, Embedding, TimeDistributed, RepeatVector, \
-    Layer, ZeroPadding2D
+    Layer, ZeroPadding2D, Dropout, MaxPool2D
 from tensorflow.keras.regularizers import l2
 
 from model.crf import CRF
@@ -55,7 +55,9 @@ class CnnEmbedding(Layer):
             kernel_size=(char_size, 1),
             padding='valid'
         )
+        self.max_pool = MaxPool2D(pool_size=(char_size, 0))
         self.padding = ZeroPadding2D(padding=(1, 0))
+        self.dropout = Dropout(0.5)
 
     def call(self, inputs, **kwargs):
         # shape = [batch_size * word_size, char_size]
@@ -68,7 +70,11 @@ class CnnEmbedding(Layer):
         x = self.padding(x)
         x = self.character_cnn1(x)
         # shape = [batch_size * word_size, 1, 1, filter_size]
-        x = self.character_cnn2(x)
+        x = self.max_pool(x)
+        # shape = [batch_size * word_size, filter_size]
+        x = tf.squeeze(x)
+        x = self.dropout(x)
+        # shape = [batch_size, word_size, filter_size]
         x = tf.reshape(x, (-1, self.word_size, self.filters))
 
         return x
