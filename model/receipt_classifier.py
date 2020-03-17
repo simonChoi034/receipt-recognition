@@ -1,28 +1,75 @@
 import tensorflow as tf
-from tensorflow.keras.layers import Reshape, Bidirectional, LSTM, Dense, GRU, Embedding, TimeDistributed, RepeatVector, \
-    Layer
+from tensorflow.keras.layers import Bidirectional, LSTM, Dense, GRU, Embedding, TimeDistributed, RepeatVector, \
+    Layer, ZeroPadding2D
 from tensorflow.keras.regularizers import l2
 
 from model.crf import CRF
-from model.resnet import Resnet18
+from model.layers import MyConv2D
 
 
 # image classifier
-class ResnetLSTMClassifier(tf.keras.Model):
-    def __init__(self, num_class, name='resnet-lstm-classifier', **kwargs):
-        super(ResnetLSTMClassifier, self).__init__(name=name, **kwargs)
-        self.resnet = Resnet18()
-        self.reshape = Reshape((-1, 128))
-        self.rnn_1 = Bidirectional(LSTM(128))
-        self.rnn_2 = Bidirectional(LSTM(256))
-        self.dense = Dense(num_class, activation='softmax')
+class CnnBiLstmClassifier(tf.keras.Model):
+    def __init__(self, num_class, vocab_size, embedding_dim, word_size, char_size, filters, kernel_size,
+                 name='cnn-bilstm-classifier', **kwargs):
+        super(CnnBiLstmClassifier, self).__init__(name=name, **kwargs)
+        self.embedding = CnnEmbedding(vocab_size, embedding_dim, word_size, char_size, filters, kernel_size)
+        self.rnn1 = Bidirectional(
+            GRU(8, return_sequences=True, activation='tanh', kernel_regularizer=l2(),
+                recurrent_regularizer=l2(), dropout=0.2,
+                recurrent_dropout=0.2), merge_mode='sum')
+        self.rnn2 = Bidirectional(
+            GRU(num_class, return_sequences=True, activation='softmax', kernel_regularizer=l2(),
+                recurrent_regularizer=l2(), dropout=0.2,
+                recurrent_dropout=0.2), merge_mode='sum')
+        self.crf = CRF(num_class)
 
     def call(self, inputs, training=None, mask=None):
-        x = self.resnet(inputs)
-        x = self.reshape(x)  # shape = (None, None, 128)
-        x = self.rnn_1(x)  # shape = (None, None, 128)
-        x = self.rnn_2(x)  # shape = (None, None, 256)
-        x = self.dense(x)  # shape = (None, num_class)
+        # input shape = [batch_size, word_size, char_size]
+        x = self.embedding(inputs)  # shape = [batch_size, word_size, filter_size]
+
+        x = self.rnn1(x)  # shape = [batch_size, word_size, x]
+        x = self.rnn2(x)  # shape = [batch_size, word_size, num_class]
+        x = self.crf(x)
+
+        return x
+
+
+class CnnEmbedding(Layer):
+    def __init__(self, vocab_size, embedding_dim, word_size, char_size, filters, kernel_size,
+                 name='cnn-embedding', **kwargs):
+        super(CnnEmbedding, self).__init__(name=name, **kwargs)
+        self.vocab_size = vocab_size
+        self.embedding_dim = embedding_dim
+        self.word_size = word_size
+        self.char_size = char_size
+        self.filters = filters
+        self.kernel_size = kernel_size
+        self.character_embedding = Embedding(vocab_size, embedding_dim)
+        self.character_cnn1 = MyConv2D(
+            filters=filters,
+            kernel_size=(kernel_size, embedding_dim),
+            padding='valid'
+        )
+        self.character_cnn2 = MyConv2D(
+            filters=filters,
+            kernel_size=(char_size, 1),
+            padding='valid'
+        )
+        self.padding = ZeroPadding2D(padding=(1, 0))
+
+    def call(self, inputs, **kwargs):
+        # shape = [batch_size * word_size, char_size]
+        x = tf.reshape(inputs, (-1, self.char_size))
+        # shape = [batch_size * word_size, char_size, embedding_dim]
+        x = self.character_embedding(x)
+        # shape = [batch_size * word_size, char_size, embedding_dim, 1]
+        x = tf.expand_dims(x, -1)
+        # shape = [batch_size * word_size, char_size, 1, filter_size]
+        x = self.padding(x)
+        x = self.character_cnn1(x)
+        # shape = [batch_size * word_size, 1, 1, filter_size]
+        x = self.character_cnn2(x)
+        x = tf.reshape(x, (-1, self.word_size, self.filters))
 
         return x
 
@@ -32,7 +79,7 @@ class RNNClassifier(tf.keras.Model):
         super(RNNClassifier, self).__init__(name=name, **kwargs)
         self.embedding = WordEmbedding(vocab_size, embedding_dim, word_size, char_size)
         self.rnn1 = Bidirectional(
-            GRU(32, return_sequences=True, activation='tanh', kernel_regularizer=l2(),
+            GRU(8, return_sequences=True, activation='tanh', kernel_regularizer=l2(),
                 recurrent_regularizer=l2(), dropout=0.2,
                 recurrent_dropout=0.2), merge_mode='sum')
         self.rnn2 = Bidirectional(
@@ -63,7 +110,7 @@ class WordEmbedding(Layer):
         self.word_size = word_size
         self.char_size = char_size
         self.vocab_size = vocab_size
-        self.encode_dim = 32
+        self.encode_dim = 16
         self.embedding = Embedding(vocab_size, embedding_dim)
         self.encoder1 = LSTM(self.encode_dim, return_sequences=False, recurrent_initializer='glorot_uniform')
         self.repeat_vector = RepeatVector(char_size)
