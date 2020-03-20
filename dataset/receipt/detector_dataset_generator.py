@@ -156,7 +156,8 @@ class ReceiptClassifyGenerator:
         self.mode = mode
         # dir = <dir>/{train|val}/<filename>.json
         self.filenames = sorted(
-            [os.path.join(dataset_dir, mode, f) for f in os.listdir(os.path.join(dataset_dir, mode)) if re.match(r'.*\.json', f)])
+            [os.path.join(dataset_dir, mode, f) for f in os.listdir(os.path.join(dataset_dir, mode)) if
+             re.match(r'.*\.json', f)])
         self.data = [self.read_file(file) for file in self.filenames]
         self.document_lists = []
         self.labels = []
@@ -240,5 +241,108 @@ class ReceiptClassifyGenerator:
 
             yield ({
                 'word_list': word_list,
+                'label': label
+            })
+
+
+class GridReceiptClassifyGenerator:
+    def __init__(self, dataset_dir, vocab_size, word_size, char_size, grid_size, mode):
+        self.vocab_size = vocab_size  # 128 -> ascii number
+        self.word_size = word_size
+        self.char_size = char_size
+        self.grid_size = grid_size
+        self.mode = mode
+        # dir = <dir>/{train|val}/<filename>.json
+        self.filenames = sorted(
+            [os.path.join(dataset_dir, mode, f) for f in os.listdir(os.path.join(dataset_dir, mode)) if
+             re.match(r'.*\.json', f)])
+        self.data = [self.read_file(file) for file in self.filenames]
+        self.grids = []
+        self.labels = []
+
+    def read_file(self, file):
+        with open(file, 'r') as json_file:
+            data = json.load(json_file)
+            return data['analyzeResult']
+
+    def pad_class_id(self):
+        for document in self.data:
+            # initial all words class id to 0
+            for page in document['readResults']:
+                for line in page['lines']:
+                    for word in line['words']:
+                        word['class'] = 0
+
+            # set class id for words
+            document_results = document['documentResults']
+            for document_result in document_results:
+                class_fields = document_result['fields']
+                for class_key, class_id in class_ids.items():
+                    if class_key in class_fields:
+                        for word_element in class_fields[class_key]['elements']:
+                            word_element = word_element.split('/')
+                            page_idx = int(word_element[2])
+                            line_idx = int(word_element[4])
+                            word_idx = int(word_element[6])
+                            document['readResults'][page_idx]['lines'][line_idx]['words'][word_idx]['class'] = class_id
+
+    def create_grid(self, document):
+        input_grid = np.zeros((self.grid_size[0], self.grid_size[1], self.char_size))
+        label_grid = np.zeros((self.grid_size[0], self.grid_size[1]))
+        for page in document['readResults']:
+            width, height = page['width'], page['height']
+            for line in page['lines']:
+                for word in line['words']:
+                    x1, y1, x2, y2, x3, y3, x4, y4 = word['boundingBox']
+                    x_min, x_max = min([x1, x2, x3, x4]), max([x1, x2, x3, x4])
+                    y_min, y_max = min([y1, y2, y3, y4]), max([y1, y2, y3, y4])
+                    w, h = x_max - x_min, y_max - y_min
+                    x_cen, y_cen = x_min + w / 2, y_min + h / 2
+                    x_cen, y_cen = x_cen / width, y_cen / height
+
+                    column_index = int(x_cen * self.grid_size[1])
+                    row_index = int(y_cen * self.grid_size[0])
+
+                    class_id = word['class']
+                    text = word['text']
+                    encoded_text = self.transform_ascii(text)
+                    encoded_text = self.crop_or_pad_zero(encoded_text, self.char_size)
+
+                    input_grid[row_index][column_index] = encoded_text
+                    label_grid[row_index][column_index] = class_id
+
+        return input_grid, label_grid
+
+    def crop_or_pad_zero(self, array, num):
+        arr_len = len(array)
+        if arr_len < num:
+            return np.pad(array, (0, num - arr_len), 'constant')
+        else:
+            return array[:num]
+
+    def transform_ascii(self, string):
+        return [ord(c) for c in string if 0 <= ord(c) < 128]
+
+    def transform_data(self):
+        for document in self.data:
+            input_grid, label_grid = self.create_grid(document)
+            self.grids.append(input_grid)
+            self.labels.append(label_grid)
+
+        self.grids = np.asarray(self.grids)
+        self.labels = np.asarray(self.labels)
+
+    def set_dataset_info(self):
+        self.pad_class_id()
+        self.transform_data()
+
+    def gen_next_pair(self):
+        while True:
+            index = np.random.randint(0, len(self.filenames))
+
+            grid, label = self.grids[index], self.labels[index]
+
+            yield ({
+                'word_list': grid,
                 'label': label
             })

@@ -11,8 +11,8 @@ from sklearn.metrics import confusion_matrix, classification_report
 from tensorflow.keras.losses import SparseCategoricalCrossentropy
 
 from dataset.dataset import ClassifierDataset
-from dataset.receipt.detector_dataset_generator import ReceiptClassifyGenerator
-from model.receipt_classifier import RNNClassifier
+from dataset.receipt.detector_dataset_generator import GridReceiptClassifyGenerator
+from model.receipt_classifier import GridClassifier
 from parameters import BATCH_SIZE, BUFFER_SIZE, PREFETCH_SIZE, LR_INIT, LR_END
 
 VOCAB_SIZE = 128
@@ -22,6 +22,7 @@ EMBEDDING_DIM = 32
 WARMUP_EPOCHS = 10
 TRAIN_EPOCHS = 1000
 NUM_CLASS = 5
+GRID_SIZE = [40, 20]
 CLASS_NAME = ["Don't care", "Merchant Name", "Merchant Address", "Transaction Date", "Total"]
 
 train_config = {
@@ -39,12 +40,12 @@ print("Num GPUs Available: ", len(physical_devices))
 if len(physical_devices) > 0:
     tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
-model = RNNClassifier(
+model = GridClassifier(
     num_class=NUM_CLASS,
     vocab_size=VOCAB_SIZE,
     embedding_dim=EMBEDDING_DIM,
-    word_size=WORD_SIZE,
-    char_size=CHAR_SIZE
+    char_size=CHAR_SIZE,
+    gird_size=GRID_SIZE
 )
 
 optimizer = tf.keras.optimizers.Adam(lr=LR_INIT)
@@ -52,17 +53,17 @@ loss_fn = SparseCategoricalCrossentropy(from_logits=True)
 
 # checkpoint manager
 embedding_layer_ckpt = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optimizer, net=model)
-embedding_layer_manager = tf.train.CheckpointManager(embedding_layer_ckpt, './checkpoints/ner_embedding_layer_train.tf',
+embedding_layer_manager = tf.train.CheckpointManager(embedding_layer_ckpt, './checkpoints/grid_embedding_layer_train.tf',
                                                      max_to_keep=5)
 model_ckpt = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optimizer, net=model)
-model_manager = tf.train.CheckpointManager(model_ckpt, './checkpoints/ner_receipt_classifier_train.tf', max_to_keep=5)
+model_manager = tf.train.CheckpointManager(model_ckpt, './checkpoints/grid_receipt_classifier_train.tf', max_to_keep=5)
 
 # tensorboard config
 current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-embedding_layer_train_log_dir = 'logs/ner_embedding_layer_train/' + current_time + '/train'
-embedding_layer_val_log_dir = 'logs/ner_embedding_layer_train/' + current_time + '/val'
-receipt_classifier_train_log_dir = 'logs/receipt_classifier/ner/' + current_time + '/train'
-receipt_classifier_val_log_dir = 'logs/receipt_classifier/ner/' + current_time + '/val'
+embedding_layer_train_log_dir = 'logs/grid_embedding_layer_train/' + current_time + '/train'
+embedding_layer_val_log_dir = 'logs/grid_embedding_layer_train/' + current_time + '/val'
+receipt_classifier_train_log_dir = 'logs/receipt_classifier/grid/' + current_time + '/train'
+receipt_classifier_val_log_dir = 'logs/receipt_classifier/grid/' + current_time + '/val'
 
 
 def update_learning_rate(step):
@@ -121,11 +122,13 @@ def train_embedding_layer(train_dataset, val_dataset):
         embedding_layer_ckpt.step.assign_add(1)
 
         if int(embedding_layer_ckpt.step) % 100 == 0:
-            index = np.random.randint(0, 30)
+            index = np.random.randint(0, GRID_SIZE[0]*GRID_SIZE[1])
             # tensorboard logging
             # train set
-            y_true_string = ascii_to_string(data['word_list'].numpy()[0][index])
-            y_pred_string = ascii_to_string(pred[0][index])
+            y_true_string = np.reshape(data['word_list'].numpy()[0], (-1)).astype(int)
+            y_pred_string = np.reshape(pred[0], (-1)).astype(int)
+            y_true_string = ascii_to_string(y_true_string[index])
+            y_pred_string = ascii_to_string(y_pred_string[index])
             with train_summary_writer.as_default():
                 tf.summary.scalar("lr", optimizer.lr, step=int(embedding_layer_ckpt.step))
                 tf.summary.scalar("loss", loss, step=int(embedding_layer_ckpt.step))
@@ -136,8 +139,11 @@ def train_embedding_layer(train_dataset, val_dataset):
             data_val = next(iter(val_dataset))
             loss, pred = embedding_layer_validation(data_val['word_list'], data_val['word_list'])
             pred = np.argmax(pred.numpy(), axis=-1)
-            y_true_string = ascii_to_string(data_val['word_list'].numpy()[0][index])
-            y_pred_string = ascii_to_string(pred[0][index])
+
+            y_true_string = np.reshape(data_val['word_list'].numpy()[0], (-1)).astype(int)
+            y_pred_string = np.reshape(pred[0], (-1)).astype(int)
+            y_true_string = ascii_to_string(y_true_string[index])
+            y_pred_string = ascii_to_string(y_pred_string[index])
             with val_summary_writer.as_default():
                 tf.summary.scalar("lr", optimizer.lr, step=int(embedding_layer_ckpt.step))
                 tf.summary.scalar("loss", loss, step=int(embedding_layer_ckpt.step))
@@ -158,7 +164,7 @@ def train_embedding_layer(train_dataset, val_dataset):
 @tf.function
 def model_validation(x, y):
     pred = model(x)
-    loss = model.crf.get_loss(y_true=y, y_pred=pred)
+    loss = loss_fn(y_true=y, y_pred=pred)
     loss = tf.reduce_mean(loss)
 
     return loss, pred
@@ -168,7 +174,7 @@ def model_validation(x, y):
 def train_classifier_one_step(x, y):
     with tf.GradientTape() as tape:
         pred = model(x)
-        loss = model.crf.get_loss(y_true=y, y_pred=pred)
+        loss = loss_fn(y_true=y, y_pred=pred)
         loss = tf.reduce_mean(loss)
         regularization_loss = tf.reduce_sum(model.losses)
         total_loss = loss + regularization_loss
@@ -220,6 +226,7 @@ def train_classifier(train_dataset, val_dataset):
 
 
 def logging(writer, preds, labels, loss):
+    preds = np.argmax(preds.numpy(), axis=-1)
     # training set
     confusion_matrix = create_confusion_matrix(y_true=labels, y_pred=preds)
     report, mean_precision, mean_recall, mean_f1 = create_classification_report(y_true=labels, y_pred=preds)
@@ -282,14 +289,16 @@ def ascii_to_string(ascii_array):
 
 def main(args):
     dataset_dir = args.dir[0:-1] if args.dir[-1] == '/' else args.dir
-    train_receipt_generator = ReceiptClassifyGenerator(
+    train_receipt_generator = GridReceiptClassifyGenerator(
+        grid_size=GRID_SIZE,
         dataset_dir=dataset_dir,
         vocab_size=VOCAB_SIZE,
         word_size=WORD_SIZE,
         char_size=CHAR_SIZE,
         mode='train'
     )
-    val_receipt_generator = ReceiptClassifyGenerator(
+    val_receipt_generator = GridReceiptClassifyGenerator(
+        grid_size=GRID_SIZE,
         dataset_dir=dataset_dir,
         vocab_size=VOCAB_SIZE,
         word_size=WORD_SIZE,
@@ -300,7 +309,7 @@ def main(args):
     train_receipt_generator.set_dataset_info()
     val_receipt_generator.set_dataset_info()
 
-    dataset_size = len(train_receipt_generator.document_lists)
+    dataset_size = len(train_receipt_generator.grids)
     warmup_steps = WARMUP_EPOCHS * dataset_size // args.batch_size
     total_steps = TRAIN_EPOCHS * dataset_size // args.batch_size
 

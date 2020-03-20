@@ -10,6 +10,7 @@ class MyConv2D(layers.Layer):
             filters,
             kernel_size,
             strides=1,
+            dilation_rate=1,
             padding='same',
             activation=True,
             apply_batchnorm=True):
@@ -20,6 +21,7 @@ class MyConv2D(layers.Layer):
             filters,
             kernel_size,
             strides,
+            dilation_rate=dilation_rate,
             padding=padding,
             kernel_initializer=tf.random_normal_initializer(0., 0.05),
             kernel_regularizer=l2(0.0005)
