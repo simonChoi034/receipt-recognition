@@ -218,7 +218,7 @@ def train_classifier(train_dataset, val_dataset):
             print("Saved checkpoint for step {}: {}".format(int(model_ckpt.step), save_path))
             print("training loss {:1.5f}".format(train_loss.numpy()))
 
-        if train_loss < 0.5 or int(model_ckpt.step) >= train_config['total_steps']:
+        if train_loss < 0.005 or int(model_ckpt.step) >= train_config['total_steps']:
             model.save('./saved_model/receipt_classifier')
             print("Training finished")
             print("Final loss {:1.5f}".format(train_loss.numpy()))
@@ -329,8 +329,9 @@ def main(args):
     train_dataset = train_dataset_generator.create_dataset()
     val_dataset = val_dataset_generator.create_dataset()
 
-    set_training_config(warmup_steps, total_steps)
-    train_embedding_layer(train_dataset=train_dataset, val_dataset=val_dataset)
+    if args.emb:
+        set_training_config(warmup_steps, total_steps)
+        train_embedding_layer(train_dataset=train_dataset, val_dataset=val_dataset)
 
     # reset training config
     set_training_config(warmup_steps, total_steps)
