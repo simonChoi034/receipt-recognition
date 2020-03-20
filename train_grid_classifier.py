@@ -125,8 +125,8 @@ def train_embedding_layer(train_dataset, val_dataset):
             index = np.random.randint(0, GRID_SIZE[0]*GRID_SIZE[1])
             # tensorboard logging
             # train set
-            y_true_string = np.reshape(data['word_list'].numpy()[0], (-1)).astype(int)
-            y_pred_string = np.reshape(pred[0], (-1)).astype(int)
+            y_true_string = np.reshape(data['word_list'].numpy()[0], (-1, CHAR_SIZE)).astype(int)
+            y_pred_string = np.reshape(pred[0], (-1, CHAR_SIZE)).astype(int)
             y_true_string = ascii_to_string(y_true_string[index])
             y_pred_string = ascii_to_string(y_pred_string[index])
             with train_summary_writer.as_default():
@@ -140,8 +140,8 @@ def train_embedding_layer(train_dataset, val_dataset):
             loss, pred = embedding_layer_validation(data_val['word_list'], data_val['word_list'])
             pred = np.argmax(pred.numpy(), axis=-1)
 
-            y_true_string = np.reshape(data_val['word_list'].numpy()[0], (-1)).astype(int)
-            y_pred_string = np.reshape(pred[0], (-1)).astype(int)
+            y_true_string = np.reshape(data_val['word_list'].numpy()[0], (-1, CHAR_SIZE)).astype(int)
+            y_pred_string = np.reshape(pred[0], (-1, CHAR_SIZE)).astype(int)
             y_true_string = ascii_to_string(y_true_string[index])
             y_pred_string = ascii_to_string(y_pred_string[index])
             with val_summary_writer.as_default():
