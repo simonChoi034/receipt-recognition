@@ -173,7 +173,7 @@ def model_validation(x, y):
 @tf.function
 def train_classifier_one_step(x, y):
     with tf.GradientTape() as tape:
-        pred = model(x, training=training)
+        pred = model(x, training=True)
         loss = loss_fn(y_true=y, y_pred=pred)
         loss = tf.reduce_mean(loss)
         regularization_loss = tf.reduce_sum(model.losses)
