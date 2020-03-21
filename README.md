@@ -1,8 +1,8 @@
-#Receipt-recognition
+# Receipt-recognition
 
 Extract key information of a receipt image
 
-##Train text detection model
+## Train text detection model
 ```
 python3 train_detector.py -d <dir of the dataset>
 ```
@@ -25,7 +25,7 @@ optional arguments:
   -s                    Shut down vm after training stop
 ```
 
-##Train receipt extraction model
+## Train receipt extraction model
 ```
 python3 train_grid_classifier.py -d <dir of the dataset>
 ```
