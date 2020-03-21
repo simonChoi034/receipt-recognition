@@ -11,10 +11,10 @@ class GridClassifier(tf.keras.Model):
     def __init__(self, num_class, vocab_size, embedding_dim, gird_size, char_size, name='cnn-classifier', **kwargs):
         super(GridClassifier, self).__init__(name=name, **kwargs)
         self.embedding = GridBiLstmEmbedding(vocab_size, embedding_dim, gird_size, char_size)
-        self.conv_block = [MyConv2D(filters=64, kernel_size=[3, 5]) for _ in range(2)]
-        self.dilated_conv_block = [MyConv2D(filters=64, kernel_size=[3, 5], dilation_rate=2) for _ in range(2)]
-        self.aspp = ASPP(64, gird_size)
-        self.conv1x1 = MyConv2D(64, kernel_size=1)
+        self.conv_block = [MyConv2D(filters=32, kernel_size=[3, 5]) for _ in range(2)]
+        self.dilated_conv_block = [MyConv2D(filters=32, kernel_size=[3, 5], dilation_rate=2) for _ in range(2)]
+        self.aspp = ASPP(32, gird_size)
+        self.conv1x1 = MyConv2D(16, kernel_size=1)
         self.output_conv = MyConv2D(num_class, 1)
         self.concat = Concatenate()
 
@@ -25,16 +25,16 @@ class GridClassifier(tf.keras.Model):
             return x
 
         for conv in self.conv_block:
-            x = conv(x)
+            x = conv(x, training=training)
 
         for conv in self.dilated_conv_block:
-            x = conv(x)
+            x = conv(x, training=training)
 
         short_cut = x
-        x = self.aspp(x)
-        x = self.concat([x, short_cut])
-        x = self.conv1x1(x)
-        x = self.output_conv(x)
+        x = self.aspp(x, training=training)
+        #x = self.concat([x, short_cut])
+        x = self.conv1x1(x, training=training)
+        x = self.output_conv(x, training=training)
 
         return x
 
@@ -51,20 +51,20 @@ class ASPP(Layer):
         self.concat = Concatenate()
         self.conv1x1 = MyConv2D(filters, kernel_size=1)
 
-    def call(self, inputs, **kwargs):
+    def call(self, inputs, training=None, **kwargs):
         image_features = tf.reduce_mean(inputs, axis=[1, 2], keepdims=True)
-        image_features = self.conv(image_features)
+        image_features = self.conv(image_features, training=training)
         image_features = self.upsampling(image_features)
 
-        dilated_conv_block1 = self.dilated_conv_block1(inputs)
-        dilated_conv_block4 = self.dilated_conv_block4(inputs)
-        dilated_conv_block8 = self.dilated_conv_block8(inputs)
-        dilated_conv_block16 = self.dilated_conv_block16(inputs)
+        dilated_conv_block1 = self.dilated_conv_block1(inputs, training=training)
+        dilated_conv_block4 = self.dilated_conv_block4(inputs, training=training)
+        dilated_conv_block8 = self.dilated_conv_block8(inputs, training=training)
+        dilated_conv_block16 = self.dilated_conv_block16(inputs, training=training)
 
         x = self.concat(
             [image_features, dilated_conv_block1, dilated_conv_block4, dilated_conv_block8, dilated_conv_block16])
 
-        x = self.conv1x1(x)
+        x = self.conv1x1(x, training=training)
 
         return x
 
@@ -76,7 +76,7 @@ class GridBiLstmEmbedding(Layer):
         self.embedding_dim = embedding_dim
         self.grid_size = grid_size
         self.char_size = char_size
-        self.encode_dim = 32
+        self.encode_dim = 64
         self.embedding = Embedding(vocab_size, embedding_dim)
         self.encoder1 = LSTM(self.encode_dim, return_sequences=False, recurrent_initializer='glorot_uniform')
         self.repeat_vector = RepeatVector(char_size)

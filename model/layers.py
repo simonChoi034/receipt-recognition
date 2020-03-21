@@ -24,12 +24,12 @@ class MyConv2D(layers.Layer):
             dilation_rate=dilation_rate,
             padding=padding,
             kernel_initializer=tf.random_normal_initializer(0., 0.05),
-            kernel_regularizer=l2(0.0005)
+            kernel_regularizer=l2()
         )
         self.batch_norm = BatchNormalization()
         self.leaky_relu = LeakyReLU()
 
-    def call(self, inputs, training=False, **kwargs):
+    def call(self, inputs, training=None, **kwargs):
         x = self.conv2d(inputs)
         if self.apply_batchnorm:
             x = self.batch_norm(x, training=training)

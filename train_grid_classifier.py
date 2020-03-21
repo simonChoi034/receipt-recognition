@@ -173,7 +173,7 @@ def model_validation(x, y):
 @tf.function
 def train_classifier_one_step(x, y):
     with tf.GradientTape() as tape:
-        pred = model(x)
+        pred = model(x, training=training)
         loss = loss_fn(y_true=y, y_pred=pred)
         loss = tf.reduce_mean(loss)
         regularization_loss = tf.reduce_sum(model.losses)
@@ -218,7 +218,7 @@ def train_classifier(train_dataset, val_dataset):
             print("Saved checkpoint for step {}: {}".format(int(model_ckpt.step), save_path))
             print("training loss {:1.5f}".format(train_loss.numpy()))
 
-        if train_loss < 0.005 or int(model_ckpt.step) >= train_config['total_steps']:
+        if train_loss < 1e-3 or int(model_ckpt.step) >= train_config['total_steps']:
             model.save('./saved_model/receipt_classifier')
             print("Training finished")
             print("Final loss {:1.5f}".format(train_loss.numpy()))
