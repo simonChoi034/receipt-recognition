@@ -4,13 +4,16 @@ from tensorflow.keras.layers import Bidirectional, LSTM, Dense, GRU, Embedding, 
 from tensorflow.keras.regularizers import l2
 
 from model.crf import CRF
-from model.layers import MyConv2D
+from model.layers import MyConv2D, CBAM
 
 
 class GridClassifier(tf.keras.Model):
     def __init__(self, num_class, gird_size, name='cnn-classifier', **kwargs):
         super(GridClassifier, self).__init__(name=name, **kwargs)
-        self.conv_block = [MyConv2D(filters=256, kernel_size=[3, 5]) for _ in range(4)]
+        self.conv1 = MyConv2D(filters=256, kernel_size=[3, 5])
+        self.attention1 = CBAM(filters=256, reduction=16)
+        self.conv2 = MyConv2D(filters=256, kernel_size=[3, 5])
+        self.attention2 = CBAM(filters=256, reduction=16)
         self.dilated_conv_block = [MyConv2D(filters=256, kernel_size=[3, 5], dilation_rate=2) for _ in range(4)]
         self.aspp = ASPP(256, gird_size)
         self.conv1x1 = MyConv2D(64, kernel_size=1)
@@ -18,19 +21,31 @@ class GridClassifier(tf.keras.Model):
         self.concat = Concatenate()
 
     def call(self, inputs, training=None, training_embedding=None, mask=None):
-        x = inputs
+        # CBAM resnet block 1
+        x = self.conv1(inputs, training=training)
+        x = self.attention1(x, training=training)
+        x += inputs
 
-        for conv in self.conv_block:
-            x = conv(x, training=training)
+        # CBAM resnet block 2
+        short_cut = x
+        x = self.conv2(x)
+        x = self.attention2(x, training=training)
+        x += short_cut
 
+        # dilated conv block
         short_cut = x
 
         for conv in self.dilated_conv_block:
             x = conv(x, training=training)
 
+        # ASPP module
         x = self.aspp(x, training=training)
+
+        # shortcut connection
         x = self.concat([x, short_cut])
         x = self.conv1x1(x, training=training)
+
+        # output
         x = self.output_conv(x, training=training)
 
         return x

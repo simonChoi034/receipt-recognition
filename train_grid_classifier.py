@@ -118,7 +118,7 @@ def train_classifier(train_dataset, val_dataset):
 
         model_ckpt.step.assign_add(1)
 
-        if int(model_ckpt.step) % 10 == 0:
+        if int(model_ckpt.step) % 100 == 0:
             logging(train_summary_writer, preds, data['label'], train_loss)
 
             # validation set
