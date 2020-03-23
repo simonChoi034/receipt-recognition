@@ -6,6 +6,7 @@ import re
 import imagesize
 import matplotlib.pyplot as plt
 import numpy as np
+import chars2vec
 
 class_ids = {
     "MerchantName": 1,
@@ -154,6 +155,7 @@ class ReceiptClassifyGenerator:
         self.word_size = word_size
         self.char_size = char_size
         self.mode = mode
+        self.c2v_model = chars2vec.load_model('eng_{}'.format(char_size))
         # dir = <dir>/{train|val}/<filename>.json
         self.filenames = sorted(
             [os.path.join(dataset_dir, mode, f) for f in os.listdir(os.path.join(dataset_dir, mode)) if
@@ -178,11 +180,10 @@ class ReceiptClassifyGenerator:
         return [ord(c) for c in string if 0 <= ord(c) < 128]
 
     def transform_data(self, array):
-        word_list = [str(ele['text']).lower() for ele in array]
+        word_list = [str(ele['text']) for ele in array]
         class_inx = [int(ele['class']) for ele in array]
 
-        word_list = [self.transform_ascii(word) for word in word_list]
-        word_list = np.asarray([self.crop_or_pad_zero(word, self.char_size) for word in word_list])
+        word_list = self.c2v_model.vectorize_words(word_list)
 
         class_inx = self.crop_or_pad_zero(class_inx, self.word_size)
         word_len = len(word_list)
@@ -251,6 +252,7 @@ class GridReceiptClassifyGenerator:
         self.word_size = word_size
         self.char_size = char_size
         self.grid_size = grid_size
+        self.c2v_model = chars2vec.load_model('eng_{}'.format(char_size))
         self.mode = mode
         # dir = <dir>/{train|val}/<filename>.json
         self.filenames = sorted(
@@ -303,12 +305,11 @@ class GridReceiptClassifyGenerator:
                     column_index = int(x_cen * self.grid_size[1])
                     row_index = int(y_cen * self.grid_size[0])
 
-                    class_id = word['class']
-                    text = word['text']
-                    encoded_text = self.transform_ascii(text)
-                    encoded_text = self.crop_or_pad_zero(encoded_text, self.char_size)
+                    class_id = int(word['class'])
+                    text = [str(word['text'])]
+                    encoded_text = self.c2v_model.vectorize_words(text)
 
-                    input_grid[row_index][column_index] = encoded_text
+                    input_grid[row_index][column_index] = encoded_text[0]
                     label_grid[row_index][column_index] = class_id
 
         return input_grid, label_grid

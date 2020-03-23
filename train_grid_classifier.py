@@ -15,14 +15,16 @@ from dataset.receipt.detector_dataset_generator import GridReceiptClassifyGenera
 from model.receipt_classifier import GridClassifier
 from parameters import BATCH_SIZE, BUFFER_SIZE, PREFETCH_SIZE, LR_INIT, LR_END
 
+CHAR_SIZE_OPTIONS = [50, 100, 150, 200, 300]
+
 VOCAB_SIZE = 128
 WORD_SIZE = 250
-CHAR_SIZE = 30
-EMBEDDING_DIM = 32
+CHAR_SIZE = 50
+EMBEDDING_DIM = 128
 WARMUP_EPOCHS = 10
 TRAIN_EPOCHS = 1000
 NUM_CLASS = 5
-GRID_SIZE = [40, 20]
+GRID_SIZE = [60, 20]
 CLASS_NAME = ["Don't care", "Merchant Name", "Merchant Address", "Transaction Date", "Total"]
 
 train_config = {
@@ -42,9 +44,6 @@ if len(physical_devices) > 0:
 
 model = GridClassifier(
     num_class=NUM_CLASS,
-    vocab_size=VOCAB_SIZE,
-    embedding_dim=EMBEDDING_DIM,
-    char_size=CHAR_SIZE,
     gird_size=GRID_SIZE
 )
 
@@ -52,16 +51,11 @@ optimizer = tf.keras.optimizers.Adam(lr=LR_INIT)
 loss_fn = SparseCategoricalCrossentropy(from_logits=True)
 
 # checkpoint manager
-embedding_layer_ckpt = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optimizer, net=model)
-embedding_layer_manager = tf.train.CheckpointManager(embedding_layer_ckpt, './checkpoints/grid_embedding_layer_train.tf',
-                                                     max_to_keep=5)
 model_ckpt = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optimizer, net=model)
 model_manager = tf.train.CheckpointManager(model_ckpt, './checkpoints/grid_receipt_classifier_train.tf', max_to_keep=5)
 
 # tensorboard config
 current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-embedding_layer_train_log_dir = 'logs/grid_embedding_layer_train/' + current_time + '/train'
-embedding_layer_val_log_dir = 'logs/grid_embedding_layer_train/' + current_time + '/val'
 receipt_classifier_train_log_dir = 'logs/receipt_classifier/grid/' + current_time + '/train'
 receipt_classifier_val_log_dir = 'logs/receipt_classifier/grid/' + current_time + '/val'
 
@@ -78,87 +72,6 @@ def update_learning_rate(step):
         )
 
     optimizer.lr.assign(float(lr))
-
-
-@tf.function
-def embedding_layer_validation(x, y):
-    pred = model(x, training_embedding=True)
-    loss = loss_fn(y_true=y, y_pred=pred)
-
-    return loss, pred
-
-
-@tf.function
-def train_embedding_layer_one_step(x, y):
-    with tf.GradientTape() as tape:
-        pred = model(x, training_embedding=True)
-        loss = loss_fn(y_true=y, y_pred=pred)
-
-    grads = tape.gradient(loss, model.trainable_variables)
-    optimizer.apply_gradients(
-        zip(grads, model.trainable_variables))
-
-    return loss, pred
-
-
-def train_embedding_layer(train_dataset, val_dataset):
-    # setup tensorboard
-    train_summary_writer = tf.summary.create_file_writer(embedding_layer_train_log_dir)
-    val_summary_writer = tf.summary.create_file_writer(embedding_layer_val_log_dir)
-
-    if embedding_layer_manager.latest_checkpoint:
-        # restore checkpoint
-        embedding_layer_ckpt.restore(embedding_layer_manager.latest_checkpoint)
-        print("Restored from {}".format(embedding_layer_manager.latest_checkpoint))
-    else:
-        print("Initializing from scratch.")
-
-    for data in train_dataset:
-        loss, pred = train_embedding_layer_one_step(data['word_list'], data['word_list'])
-        pred = np.argmax(pred.numpy(), axis=-1)  # shape = [batch_size, word_size, char_size]
-
-        update_learning_rate(int(embedding_layer_ckpt.step))
-
-        embedding_layer_ckpt.step.assign_add(1)
-
-        if int(embedding_layer_ckpt.step) % 100 == 0:
-            index = np.random.randint(0, GRID_SIZE[0]*GRID_SIZE[1])
-            # tensorboard logging
-            # train set
-            y_true_string = np.reshape(data['word_list'].numpy()[0], (-1, CHAR_SIZE)).astype(int)
-            y_pred_string = np.reshape(pred[0], (-1, CHAR_SIZE)).astype(int)
-            y_true_string = ascii_to_string(y_true_string[index])
-            y_pred_string = ascii_to_string(y_pred_string[index])
-            with train_summary_writer.as_default():
-                tf.summary.scalar("lr", optimizer.lr, step=int(embedding_layer_ckpt.step))
-                tf.summary.scalar("loss", loss, step=int(embedding_layer_ckpt.step))
-                tf.summary.text("Prediction", y_pred_string, step=int(embedding_layer_ckpt.step))
-                tf.summary.text("Ground Truth", y_true_string, step=int(embedding_layer_ckpt.step))
-
-            # validation set
-            data_val = next(iter(val_dataset))
-            loss, pred = embedding_layer_validation(data_val['word_list'], data_val['word_list'])
-            pred = np.argmax(pred.numpy(), axis=-1)
-
-            y_true_string = np.reshape(data_val['word_list'].numpy()[0], (-1, CHAR_SIZE)).astype(int)
-            y_pred_string = np.reshape(pred[0], (-1, CHAR_SIZE)).astype(int)
-            y_true_string = ascii_to_string(y_true_string[index])
-            y_pred_string = ascii_to_string(y_pred_string[index])
-            with val_summary_writer.as_default():
-                tf.summary.scalar("lr", optimizer.lr, step=int(embedding_layer_ckpt.step))
-                tf.summary.scalar("loss", loss, step=int(embedding_layer_ckpt.step))
-                tf.summary.text("Prediction", y_pred_string, step=int(embedding_layer_ckpt.step))
-                tf.summary.text("Ground Truth", y_true_string, step=int(embedding_layer_ckpt.step))
-
-            save_path = embedding_layer_manager.save()
-            print("Saved checkpoint for step {}: {}".format(int(embedding_layer_ckpt.step), save_path))
-            print("training loss {:1.5f}".format(loss.numpy()))
-
-        if loss < 1e-3 or int(embedding_layer_ckpt.step) >= train_config['total_steps']:
-            model.save_weights('./saved_weights/embedding_layer')
-            print("Training finished")
-            print("Final loss {:1.5f}".format(loss.numpy()))
-            return
 
 
 @tf.function
@@ -294,7 +207,7 @@ def main(args):
         dataset_dir=dataset_dir,
         vocab_size=VOCAB_SIZE,
         word_size=WORD_SIZE,
-        char_size=CHAR_SIZE,
+        char_size=args.char_size,
         mode='train'
     )
     val_receipt_generator = GridReceiptClassifyGenerator(
@@ -302,7 +215,7 @@ def main(args):
         dataset_dir=dataset_dir,
         vocab_size=VOCAB_SIZE,
         word_size=WORD_SIZE,
-        char_size=CHAR_SIZE,
+        char_size=args.char_size,
         mode='val'
     )
 
@@ -329,10 +242,6 @@ def main(args):
     train_dataset = train_dataset_generator.create_dataset()
     val_dataset = val_dataset_generator.create_dataset()
 
-    if args.emb:
-        set_training_config(warmup_steps, total_steps)
-        train_embedding_layer(train_dataset=train_dataset, val_dataset=val_dataset)
-
     # reset training config
     set_training_config(warmup_steps, total_steps)
     train_classifier(train_dataset=train_dataset, val_dataset=val_dataset)
@@ -345,7 +254,15 @@ def set_training_config(warmup_steps, total_steps):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train detection model')
-    parser.add_argument('-e', '--emb', action='store_true', help='Train character embedding layer')
+    parser.add_argument(
+        '-c',
+        '--char_size',
+        default=50,
+        choices=CHAR_SIZE_OPTIONS,
+        type=int,
+        nargs='?',
+        help='Enter the character embedding size'
+    )
     parser.add_argument('-b', '--batch_size', type=int, default=BATCH_SIZE, help='Batch size')
     parser.add_argument('-d', '--dir', help='Directory of dataset', required=True)
     parser.add_argument('-s', action='store_true', help='Shut down vm after training stop')
