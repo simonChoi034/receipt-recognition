@@ -28,7 +28,7 @@ class GridClassifier(tf.keras.Model):
 
         # CBAM resnet block 2
         short_cut = x
-        x = self.conv2(x)
+        x = self.conv2(x, training=training)
         x = self.attention2(x, training=training)
         x += short_cut
 
