@@ -24,7 +24,7 @@ EMBEDDING_DIM = 128
 WARMUP_EPOCHS = 10
 TRAIN_EPOCHS = 1000
 NUM_CLASS = 5
-GRID_SIZE = [60, 20]
+GRID_SIZE = [50, 50]
 CLASS_NAME = ["Don't care", "Merchant Name", "Merchant Address", "Transaction Date", "Total"]
 
 train_config = {
@@ -76,7 +76,7 @@ def update_learning_rate(step):
 
 @tf.function
 def model_validation(x, y):
-    pred = model(x)
+    pred = model(x, training=True)
     loss = loss_fn(y_true=y, y_pred=pred)
     loss = tf.reduce_mean(loss)
 

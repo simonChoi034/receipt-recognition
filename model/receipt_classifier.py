@@ -14,7 +14,7 @@ class GridClassifier(tf.keras.Model):
         self.dilated_conv_block = [MyConv2D(filters=256, kernel_size=[3, 5], dilation_rate=2) for _ in range(4)]
         self.aspp = ASPP(256, gird_size)
         self.conv1x1 = MyConv2D(64, kernel_size=1)
-        self.output_conv = MyConv2D(num_class, 1)
+        self.output_conv = MyConv2D(num_class, 1, activation=False, apply_batchnorm=False)
         self.concat = Concatenate()
 
     def call(self, inputs, training=None, training_embedding=None, mask=None):
@@ -23,10 +23,11 @@ class GridClassifier(tf.keras.Model):
         for conv in self.conv_block:
             x = conv(x, training=training)
 
+        short_cut = x
+
         for conv in self.dilated_conv_block:
             x = conv(x, training=training)
 
-        short_cut = x
         x = self.aspp(x, training=training)
         x = self.concat([x, short_cut])
         x = self.conv1x1(x, training=training)
