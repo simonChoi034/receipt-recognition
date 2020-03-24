@@ -183,9 +183,13 @@ class ReceiptClassifyGenerator:
         word_list = [str(ele['text']) for ele in array]
         class_inx = [int(ele['class']) for ele in array]
 
+        # encode words with pre-trained char2vec model
         word_list = self.c2v_model.vectorize_words(word_list)
 
+        # pad class ids
         class_inx = self.crop_or_pad_zero(class_inx, self.word_size)
+
+        # pad encoded words
         word_len = len(word_list)
         zeros = np.zeros((self.word_size - word_len, self.char_size))
         word_list = np.concatenate([word_list, zeros], axis=0)
@@ -200,7 +204,7 @@ class ReceiptClassifyGenerator:
                     for word in line['words']:
                         word['class'] = 0
 
-            # set class id for words
+            # set class id for each words
             document_results = document['documentResults']
             for document_result in document_results:
                 class_fields = document_result['fields']
@@ -215,12 +219,15 @@ class ReceiptClassifyGenerator:
 
     def create_word_array(self):
         for document in self.data:
+            # create array of words and class id
             document_words = []
             for page in document['readResults']:
                 for line in page['lines']:
                     for word in line['words']:
+                        # word = { text, class_id }
                         document_words.append(word)
 
+            # encode words and label
             document_words, label = self.transform_data(document_words)
 
             self.document_lists.append(document_words)
@@ -295,6 +302,7 @@ class GridReceiptClassifyGenerator:
             width, height = page['width'], page['height']
             for line in page['lines']:
                 for word in line['words']:
+                    # calculate grid index
                     x1, y1, x2, y2, x3, y3, x4, y4 = word['boundingBox']
                     x_min, x_max = min([x1, x2, x3, x4]), max([x1, x2, x3, x4])
                     y_min, y_max = min([y1, y2, y3, y4]), max([y1, y2, y3, y4])
@@ -305,6 +313,7 @@ class GridReceiptClassifyGenerator:
                     column_index = int(x_cen * self.grid_size[1])
                     row_index = int(y_cen * self.grid_size[0])
 
+                    # encode text and class_id
                     class_id = int(word['class'])
                     text = [str(word['text'])]
                     encoded_text = self.c2v_model.vectorize_words(text)
@@ -326,6 +335,7 @@ class GridReceiptClassifyGenerator:
 
     def transform_data(self):
         for document in self.data:
+            # get input grid for each receipt
             input_grid, label_grid = self.create_grid(document)
             self.grids.append(input_grid)
             self.labels.append(label_grid)
