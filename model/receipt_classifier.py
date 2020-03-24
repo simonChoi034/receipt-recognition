@@ -1,5 +1,5 @@
 import tensorflow as tf
-from tensorflow.keras.layers import Bidirectional, GRU, Layer, UpSampling2D, Concatenate
+from tensorflow.keras.layers import Bidirectional, LSTM, Layer, UpSampling2D, Concatenate, LSTMCell, RNN
 from tensorflow.keras.regularizers import l2
 
 from model.crf import CRF
@@ -85,14 +85,22 @@ class ASPP(Layer):
 class BiLSTMClassifier(tf.keras.Model):
     def __init__(self, num_class, name='rnn-classifier', **kwargs):
         super(BiLSTMClassifier, self).__init__(name=name, **kwargs)
+        self.hidden_size = 256
+        self.cells = [
+            LSTMCell(self.hidden_size, kernel_regularizer=l2(),
+                     recurrent_regularizer=l2(), dropout=0.2,
+                     recurrent_dropout=0.2),
+            LSTMCell(self.hidden_size, kernel_regularizer=l2(),
+                     recurrent_regularizer=l2(), dropout=0.2,
+                     recurrent_dropout=0.2)
+        ]
         self.rnn1 = Bidirectional(
-            GRU(32, return_sequences=True, activation='tanh', kernel_regularizer=l2(),
-                recurrent_regularizer=l2(), dropout=0.2,
-                recurrent_dropout=0.2), merge_mode='sum')
+            RNN(self.cells, return_sequences=True)
+        )
         self.rnn2 = Bidirectional(
-            GRU(num_class, return_sequences=True, activation='softmax', kernel_regularizer=l2(),
-                recurrent_regularizer=l2(), dropout=0.2,
-                recurrent_dropout=0.2), merge_mode='sum')
+            LSTM(num_class, return_sequences=True, activation='softmax', kernel_regularizer=l2(),
+                 recurrent_regularizer=l2(), dropout=0.2,
+                 recurrent_dropout=0.2), merge_mode='sum')
         self.crf = CRF(num_class)
 
     def call(self, inputs, training=None, training_embedding=None, mask=None):

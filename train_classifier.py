@@ -22,7 +22,7 @@ WORD_SIZE = 250
 CHAR_SIZE = 50
 EMBEDDING_DIM = 32
 WARMUP_EPOCHS = 10
-TRAIN_EPOCHS = 1000
+TRAIN_EPOCHS = 5000
 NUM_CLASS = 5
 CLASS_NAME = ["Don't care", "Merchant Name", "Merchant Address", "Transaction Date", "Total"]
 
