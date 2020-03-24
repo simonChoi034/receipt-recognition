@@ -131,7 +131,7 @@ def train_classifier(train_dataset, val_dataset):
             print("Saved checkpoint for step {}: {}".format(int(model_ckpt.step), save_path))
             print("training loss {:1.5f}".format(train_loss.numpy()))
 
-        if train_loss < 1e-3 or int(model_ckpt.step) >= train_config['total_steps']:
+        if int(model_ckpt.step) >= train_config['total_steps']:
             model.save('./saved_model/receipt_classifier')
             print("Training finished")
             print("Final loss {:1.5f}".format(train_loss.numpy()))
