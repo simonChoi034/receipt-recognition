@@ -73,7 +73,7 @@ class CBAM(layers.Layer):
         self.channel_conv2 = MyConv2D(filters=filters, kernel_size=1, apply_batchnorm=False, activation=False)
         self.spatial_conv = MyConv2D(filters=1, kernel_size=7, apply_batchnorm=False, activation=False)
         self.sigmoid = Activation(tf.nn.sigmoid)
-        self.concat = Concatenate
+        self.concat = Concatenate()
 
     def call(self, inputs, training=False, **kwargs):
         # channel attention
@@ -92,7 +92,7 @@ class CBAM(layers.Layer):
         # spatial attention
         y_mean = tf.reduce_mean(x, axis=-1, keepdims=True)
         y_max = tf.reduce_max(x, axis=-1, keepdims=True)
-        y = self.concat([y_mean, y_max], axis=-1)
+        y = self.concat([y_mean, y_max])
         y = self.spatial_conv(y, training=training)
         y = self.sigmoid(y)
         y = tf.multiply(x, y)
