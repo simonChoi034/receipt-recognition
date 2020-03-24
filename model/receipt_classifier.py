@@ -24,13 +24,13 @@ class GridClassifier(tf.keras.Model):
         # CBAM resnet block 1
         x = self.conv1(inputs, training=training)
         x = self.attention1(x, training=training)
-        x += inputs
+        x = self.concat([x, inputs])
 
         # CBAM resnet block 2
         short_cut = x
         x = self.conv2(x, training=training)
         x = self.attention2(x, training=training)
-        x += short_cut
+        x = self.concat([x, short_cut])
 
         # dilated conv block
         short_cut = x
