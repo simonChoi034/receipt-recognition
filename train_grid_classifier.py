@@ -13,18 +13,20 @@ from tensorflow.keras.losses import SparseCategoricalCrossentropy
 from dataset.dataset import ClassifierDataset
 from dataset.receipt.detector_dataset_generator import GridReceiptClassifyGenerator
 from model.receipt_classifier import GridClassifier
-from parameters import BATCH_SIZE, BUFFER_SIZE, PREFETCH_SIZE, LR_INIT, LR_END
+from parameters import BATCH_SIZE, BUFFER_SIZE, PREFETCH_SIZE
 
 CHAR_SIZE_OPTIONS = [50, 100, 150, 200, 300]
+
+LR_INIT = 1e-4
+LR_END = 1e-6
 
 VOCAB_SIZE = 128
 WORD_SIZE = 250
 CHAR_SIZE = 50
-EMBEDDING_DIM = 128
-WARMUP_EPOCHS = 10
-TRAIN_EPOCHS = 3000
+WARMUP_EPOCHS = 100
+TRAIN_EPOCHS = 1500
 NUM_CLASS = 5
-GRID_SIZE = [50, 50]
+GRID_SIZE = [64, 64]
 CLASS_NAME = ["Don't care", "Merchant Name", "Merchant Address", "Transaction Date", "Total"]
 
 train_config = {
@@ -47,7 +49,7 @@ model = GridClassifier(
     gird_size=GRID_SIZE
 )
 
-optimizer = tf.keras.optimizers.Adam(lr=LR_INIT)
+optimizer = tf.keras.optimizers.Adam(lr=LR_INIT, clipnorm=10.0)
 loss_fn = SparseCategoricalCrossentropy(from_logits=True)
 
 # checkpoint manager
@@ -132,7 +134,7 @@ def train_classifier(train_dataset, val_dataset):
             print("training loss {:1.5f}".format(train_loss.numpy()))
 
         if int(model_ckpt.step) >= train_config['total_steps']:
-            model.save('./saved_model/receipt_classifier')
+            model.save('./saved_model/grid_receipt_classifier')
             print("Training finished")
             print("Final loss {:1.5f}".format(train_loss.numpy()))
             return

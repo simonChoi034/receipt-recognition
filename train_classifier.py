@@ -21,8 +21,8 @@ VOCAB_SIZE = 128
 WORD_SIZE = 250
 CHAR_SIZE = 50
 EMBEDDING_DIM = 32
-WARMUP_EPOCHS = 10
-TRAIN_EPOCHS = 5000
+WARMUP_EPOCHS = 100
+TRAIN_EPOCHS = 3000
 NUM_CLASS = 5
 CLASS_NAME = ["Don't care", "Merchant Name", "Merchant Address", "Transaction Date", "Total"]
 
@@ -129,7 +129,7 @@ def train_classifier(train_dataset, val_dataset):
             print("training loss {:1.5f}".format(train_loss.numpy()))
 
         if train_loss < 0.5 or int(model_ckpt.step) >= train_config['total_steps']:
-            model.save('./saved_model/receipt_classifier')
+            model.save('./saved_model/ner_receipt_classifier')
             print("Training finished")
             print("Final loss {:1.5f}".format(train_loss.numpy()))
             return

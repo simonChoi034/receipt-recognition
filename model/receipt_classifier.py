@@ -85,7 +85,7 @@ class ASPP(Layer):
 class BiLSTMClassifier(tf.keras.Model):
     def __init__(self, num_class, name='rnn-classifier', **kwargs):
         super(BiLSTMClassifier, self).__init__(name=name, **kwargs)
-        self.hidden_size = 256
+        self.hidden_size = 128
         self.cells = [
             LSTMCell(self.hidden_size, kernel_regularizer=l2(),
                      recurrent_regularizer=l2(), dropout=0.2,
