@@ -65,9 +65,9 @@ class ASPP(Layer):
         self.conv1x1 = MyConv2D(filters, kernel_size=1)
 
     def call(self, inputs, training=None, **kwargs):
-        image_features = tf.reduce_mean(inputs, axis=[1, 2], keepdims=True)
-        image_features = self.conv(image_features, training=training)
-        image_features = self.upsampling(image_features)
+        input_features = tf.reduce_mean(inputs, axis=[1, 2], keepdims=True)
+        input_features = self.conv(input_features, training=training)
+        input_features = self.upsampling(input_features)
 
         dilated_conv_block1 = self.dilated_conv_block1(inputs, training=training)
         dilated_conv_block4 = self.dilated_conv_block4(inputs, training=training)
@@ -75,7 +75,7 @@ class ASPP(Layer):
         dilated_conv_block16 = self.dilated_conv_block16(inputs, training=training)
 
         x = self.concat(
-            [image_features, dilated_conv_block1, dilated_conv_block4, dilated_conv_block8, dilated_conv_block16])
+            [input_features, dilated_conv_block1, dilated_conv_block4, dilated_conv_block8, dilated_conv_block16])
 
         x = self.conv1x1(x, training=training)
 

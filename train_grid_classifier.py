@@ -50,7 +50,8 @@ model = GridClassifier(
 )
 
 optimizer = tf.keras.optimizers.Adam(lr=LR_INIT, clipnorm=10.0)
-loss_fn = SparseCategoricalCrossentropy(from_logits=True)
+cross_entropy = SparseCategoricalCrossentropy(from_logits=True)
+class_weights = [0.1, 1, 1.2, 0.8, 1.5]
 
 # checkpoint manager
 model_ckpt = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optimizer, net=model)
@@ -60,6 +61,12 @@ model_manager = tf.train.CheckpointManager(model_ckpt, './checkpoints/grid_recei
 current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 receipt_classifier_train_log_dir = 'logs/receipt_classifier/grid/' + current_time + '/train'
 receipt_classifier_val_log_dir = 'logs/receipt_classifier/grid/' + current_time + '/val'
+
+
+def loss_fn(y_true, y_pred):
+    # loss with class weights
+    sample_weights = tf.gather(class_weights, tf.cast(y_true, tf.int32))
+    return cross_entropy(y_true=y_true, y_pred=y_pred, sample_weight=sample_weights)
 
 
 def update_learning_rate(step):
