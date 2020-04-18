@@ -23,8 +23,8 @@ CHAR_SIZE = 50
 EMBEDDING_DIM = 32
 WARMUP_EPOCHS = 100
 TRAIN_EPOCHS = 3000
-NUM_CLASS = 6
-CLASS_NAME = ["Not word", "Don't care", "Merchant Name", "Merchant Address", "Transaction Date", "Total"]
+NUM_CLASS = 5
+CLASS_NAME = ["Don't care", "Merchant Name", "Merchant Address", "Transaction Date", "Total"]
 
 train_config = {
     'warmup_steps': WARMUP_EPOCHS,
@@ -143,7 +143,7 @@ def logging(writer, preds, labels, loss):
     with writer.as_default():
         tf.summary.scalar("lr", optimizer.lr, step=int(model_ckpt.step))
         tf.summary.scalar("loss", loss, step=int(model_ckpt.step))
-        for name in CLASS_NAME[1:]:
+        for name in CLASS_NAME:
             tf.summary.scalar("{} precision".format(name), report[name]['precision'], step=int(model_ckpt.step))
             tf.summary.scalar("{} recall".format(name), report[name]['recall'], step=int(model_ckpt.step))
             tf.summary.scalar("{} f1-score".format(name), report[name]['f1-score'], step=int(model_ckpt.step))
@@ -158,9 +158,9 @@ def create_classification_report(y_true, y_pred):
     y_pred = np.reshape(y_pred, (-1)).astype(int)
     report = classification_report(y_true, y_pred, labels=range(NUM_CLASS), digits=3, output_dict=True, zero_division=0,
                                    target_names=CLASS_NAME)
-    mean_precision = np.mean([report[name]['precision'] for name in CLASS_NAME[1:]])
-    mean_recall = np.mean([report[name]['recall'] for name in CLASS_NAME[1:]])
-    mean_f1 = np.mean([report[name]['f1-score'] for name in CLASS_NAME[1:]])
+    mean_precision = np.mean([report[name]['precision'] for name in CLASS_NAME])
+    mean_recall = np.mean([report[name]['recall'] for name in CLASS_NAME])
+    mean_f1 = np.mean([report[name]['f1-score'] for name in CLASS_NAME])
 
     return report, mean_precision, mean_recall, mean_f1
 

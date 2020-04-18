@@ -14,10 +14,7 @@ class GridClassifier(tf.keras.Model):
         self.attention1 = CBAM(filters=256, reduction=16)
         self.conv2 = MyConv2D(filters=256, kernel_size=[3, 5])
         self.attention2 = CBAM(filters=256, reduction=16)
-        self.dilated_conv_block1 = [MyConv2D(filters=256, kernel_size=[3, 5], dilation_rate=2 ** i) for i in
-                                    range(1, 5)]
-        self.dilated_conv_block2 = [MyConv2D(filters=256, kernel_size=[3, 5], dilation_rate=2 ** i) for i in
-                                    range(1, 5)]
+        self.dilated_conv_block = [MyConv2D(filters=256, kernel_size=[3, 5], dilation_rate=2 ** i) for i in range(1, 5)]
         self.aspp = ASPP(256, gird_size)
         self.conv1x1 = MyConv2D(64, kernel_size=1)
         self.output_conv = MyConv2D(num_class, 1, activation=False, apply_batchnorm=False)
@@ -32,10 +29,6 @@ class GridClassifier(tf.keras.Model):
         x = self.attention1(x, training=training)
         x = self.concat([x, short_cut_1])
 
-        # dilated conv block
-        for conv in self.dilated_conv_block1:
-            x = conv(x, training=training)
-
         # CBAM resnet block 2
         short_cut_2 = x
         x = self.conv2(x, training=training)
@@ -43,7 +36,7 @@ class GridClassifier(tf.keras.Model):
         x = self.concat([x, short_cut_2])
 
         # dilated conv block
-        for conv in self.dilated_conv_block2:
+        for conv in self.dilated_conv_block:
             x = conv(x, training=training)
 
         # ASPP module

@@ -9,11 +9,10 @@ import numpy as np
 import chars2vec
 
 class_ids = {
-    "Don't care": 1,
-    "MerchantName": 2,
-    "MerchantAddress": 3,
-    "TransactionDate": 4,
-    "Total": 5
+    "MerchantName": 1,
+    "MerchantAddress": 2,
+    "TransactionDate": 3,
+    "Total": 4
 }
 
 
@@ -199,11 +198,11 @@ class ReceiptClassifyGenerator:
 
     def pad_class_id(self):
         for document in self.data:
-            # initial all words class id to 1
+            # initial all words class id to 0
             for page in document['readResults']:
                 for line in page['lines']:
                     for word in line['words']:
-                        word['class'] = 1
+                        word['class'] = 0
 
             # set class id for each words
             document_results = document['documentResults']
@@ -277,11 +276,11 @@ class GridReceiptClassifyGenerator:
 
     def pad_class_id(self):
         for document in self.data:
-            # initial all words class id to 1
+            # initial all words class id to 0
             for page in document['readResults']:
                 for line in page['lines']:
                     for word in line['words']:
-                        word['class'] = 1
+                        word['class'] = 0
 
             # set class id for words
             document_results = document['documentResults']
