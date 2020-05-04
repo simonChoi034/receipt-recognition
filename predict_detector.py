@@ -4,12 +4,13 @@ import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
+from PIL import Image
 
 from model.yolov3 import YoloV3, output_bbox
 from parameters import NUM_CLASS, IMAGE_SIZE
 
 model = YoloV3(num_class=NUM_CLASS)
-model.load_weights('./saved_model_weight/saved_weight')
+model.load_weights('./saved_model_weight/yolov3_2.0/saved_weight')
 
 
 @tf.function
@@ -35,11 +36,11 @@ def main(args):
     image = tf.expand_dims(image, axis=0)
 
     bboxes, scores, classes, valid_detections = predict(image)
-    plot_bounding_box(image, bboxes, scores, valid_detections)
+    original_image = np.array(Image.open(image_path))
+    plot_bounding_box(original_image, bboxes, scores, valid_detections)
 
 
 def plot_bounding_box(imgs, labels, scores, valid_detections):
-    img = imgs.numpy()[0]
     label = labels.numpy()[0][:valid_detections.numpy()[0]]
     score = scores.numpy()[0][:valid_detections.numpy()[0]]
 
@@ -49,17 +50,19 @@ def plot_bounding_box(imgs, labels, scores, valid_detections):
     c = cmap((np.array(colors) - np.amin(colors)) / (np.amax(colors) - np.amin(colors)))
 
     # normalize image to [0, 1]
-    img = (img + 1) / 2
+    img = imgs / 255
     img_h, img_w = img.shape[0], img.shape[1]
 
     # plot graph
     fig, ax = plt.subplots(1)
     ax.imshow(img)
     for i, (bbox, score) in enumerate(zip(label, score)):
+        ratio_w = min(IMAGE_SIZE / img_w, IMAGE_SIZE / img_h) / IMAGE_SIZE
+        ratio_h = min(IMAGE_SIZE / img_w, IMAGE_SIZE / img_h) / IMAGE_SIZE
         x1, y1, x2, y2 = bbox
-        w = abs(x2 - x1) * img_w
-        h = abs(y2 - y1) * img_h
-        x, y = x1 * img_w, y1 * img_h
+        w = abs(x2 - x1) / ratio_w
+        h = abs(y2 - y1) / ratio_h
+        x, y = x1 / ratio_w, y1 / ratio_h
 
         rect = mpatches.Rectangle((x, y), w, h, linewidth=2,
                                   edgecolor='blue', facecolor='none')

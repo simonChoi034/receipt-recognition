@@ -266,6 +266,7 @@ class GridReceiptClassifyGenerator:
             [os.path.join(dataset_dir, mode, f) for f in os.listdir(os.path.join(dataset_dir, mode)) if
              re.match(r'.*\.json', f)])
         self.data = [self.read_file(file) for file in self.filenames]
+        self.text_grids = []
         self.grids = []
         self.labels = []
 
@@ -296,6 +297,7 @@ class GridReceiptClassifyGenerator:
                             document['readResults'][page_idx]['lines'][line_idx]['words'][word_idx]['class'] = class_id
 
     def create_grid(self, document):
+        text_grid = [['' for _ in range(self.grid_size[1])] for _ in range(self.grid_size[0])]
         input_grid = np.zeros((self.grid_size[0], self.grid_size[1], self.char_size))
         label_grid = np.zeros((self.grid_size[0], self.grid_size[1]))
         for page in document['readResults']:
@@ -318,10 +320,11 @@ class GridReceiptClassifyGenerator:
                     text = [str(word['text'])]
                     encoded_text = self.c2v_model.vectorize_words(text)
 
+                    text_grid[row_index][column_index] = word['text']
                     input_grid[row_index][column_index] = encoded_text[0]
                     label_grid[row_index][column_index] = class_id
 
-        return input_grid, label_grid
+        return text_grid, input_grid, label_grid
 
     def crop_or_pad_zero(self, array, num):
         arr_len = len(array)
@@ -336,7 +339,8 @@ class GridReceiptClassifyGenerator:
     def transform_data(self):
         for document in self.data:
             # get input grid for each receipt
-            input_grid, label_grid = self.create_grid(document)
+            text_grid, input_grid, label_grid = self.create_grid(document)
+            self.text_grids.append(text_grid)
             self.grids.append(input_grid)
             self.labels.append(label_grid)
 
@@ -355,5 +359,6 @@ class GridReceiptClassifyGenerator:
 
             yield ({
                 'word_list': grid,
-                'label': label
+                'label': label,
+                'index': index
             })
